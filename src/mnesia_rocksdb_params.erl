@@ -132,10 +132,10 @@ store_params(Params) ->
       fun({Tab, Sz}) when is_atom(Tab);
                           is_atom(element(1,Tab)),
                           is_integer(element(2,Tab)) ->
-              ets:insert(?MODULE, {Tab, ldb_params(Sz, Env1, Tab)})
+              ets:insert(?MODULE, {Tab, rdb_params(Sz, Env1, Tab)})
       end, Params).
 
-ldb_params(Sz, Env, _Tab) ->
+rdb_params(Sz, Env, _Tab) ->
     MaxFiles = mnesia_rocksdb_tuning:max_files(Sz) * Env#tuning.files_factor,
     Opts = if Env#tuning.avail_ram > 100 ->  % Gigabytes
                  [{write_buffer_size, mnesia_rocksdb_tuning:write_buffer(Sz)},
