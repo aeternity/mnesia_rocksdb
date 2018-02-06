@@ -1538,7 +1538,7 @@ keypat([{HeadPat,Gs,_}|_], KeyPos) when is_tuple(HeadPat) ->
     KP      = element(KeyPos, HeadPat),
     KeyVars = extract_vars(KP),
     Guards  = relevant_guards(Gs, KeyVars),
-    Pfx     = mnesia_rocksdb_sext:prefix(KP),
+    Pfx     = sext:prefix(KP),
     {Pfx, [{KP, Guards, [true]}]};
 keypat(_, _) ->
     {<<>>, [{'_',[],[true]}]}.
@@ -1574,10 +1574,10 @@ keypos(Tab) when is_atom(Tab) ->
     2.
 
 encode_key(Key) ->
-    mnesia_rocksdb_sext:encode(Key).
+    sext:encode(Key).
 
 decode_key(CodedKey) ->
-    case mnesia_rocksdb_sext:partial_decode(CodedKey) of
+    case sext:partial_decode(CodedKey) of
         {full, Result, _} ->
             Result;
         _ ->

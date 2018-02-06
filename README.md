@@ -20,7 +20,7 @@ tables you want to be in RocksDB.
 
 RocksDB tables support efficient selects on *prefix keys*.
 
-The backend uses the `mnesia_rocksdb_sext` module (see
+The backend uses the `sext` module (see
 https://github.com/uwiger/sext) for mapping between Erlang terms and the
 binary data stored in the tables. This provides two useful properties:
 
