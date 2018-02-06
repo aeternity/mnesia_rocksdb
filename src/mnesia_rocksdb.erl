@@ -360,26 +360,26 @@ create_table(_Alias, Tab, _Props) ->
 
 load_table(Alias, Tab, _LoadReason, Opts) ->
     Type = proplists:get_value(type, Opts),
-    LdbUserProps = proplists:get_value(
+    RdbUserProps = proplists:get_value(
                      rocksdb_opts, proplists:get_value(
                                      user_properties, Opts, []), []),
     StorageProps = proplists:get_value(
                      rocksdb, proplists:get_value(
-                                storage_properties, Opts, []), LdbUserProps),
-    LdbOpts = mnesia_rocksdb_params:lookup(Tab, StorageProps),
+                                storage_properties, Opts, []), RdbUserProps),
+    RdbOpts = mnesia_rocksdb_params:lookup(Tab, StorageProps),
     ProcName = proc_name(Alias, Tab),
     case whereis(ProcName) of
         undefined ->
-            load_table_(Alias, Tab, Type, LdbOpts);
+            load_table_(Alias, Tab, Type, RdbOpts);
         Pid ->
-            gen_server:call(Pid, {load, Alias, Tab, Type, LdbOpts}, infinity)
+            gen_server:call(Pid, {load, Alias, Tab, Type, RdbOpts}, infinity)
     end.
 
-load_table_(Alias, Tab, Type, LdbOpts) ->
+load_table_(Alias, Tab, Type, RdbOpts) ->
     ShutdownTime = proplists:get_value(
-                     owner_shutdown_time, LdbOpts, 120000),
+                     owner_shutdown_time, RdbOpts, 120000),
     case mnesia_ext_sup:start_proc(
-           Tab, ?MODULE, start_proc, [Alias,Tab,Type, LdbOpts],
+           Tab, ?MODULE, start_proc, [Alias,Tab,Type, RdbOpts],
            [{shutdown, ShutdownTime}]) of
         {ok, _Pid} ->
             ok;
@@ -858,7 +858,7 @@ validate_record(_Alias, _Tab, RecName, Arity, Type, _Obj) ->
 %% Extensions for files that are permanent. Needs to be cleaned up
 %% e.g. at deleting the schema.
 real_suffixes() ->
-    [".extldb"].
+    [".extrdb"].
 
 %% Extensions for temporary files. Can be cleaned up when mnesia
 %% cleans up other temporary files.
@@ -870,14 +870,14 @@ tmp_suffixes() ->
 %% GEN SERVER CALLBACKS AND CALLS
 %% ----------------------------------------------------------------------------
 
-start_proc(Alias, Tab, Type, LdbOpts) ->
+start_proc(Alias, Tab, Type, RdbOpts) ->
     ProcName = proc_name(Alias, Tab),
     gen_server:start_link({local, ProcName}, ?MODULE,
-                          {Alias, Tab, Type, LdbOpts}, []).
+                          {Alias, Tab, Type, RdbOpts}, []).
 
-init({Alias, Tab, Type, LdbOpts}) ->
+init({Alias, Tab, Type, RdbOpts}) ->
     process_flag(trap_exit, true),
-    {ok, Ref, Ets} = do_load_table(Tab, LdbOpts),
+    {ok, Ref, Ets} = do_load_table(Tab, RdbOpts),
     St = #st{ ets = Ets
 	    , ref = Ref
 	    , alias = Alias
@@ -888,17 +888,17 @@ init({Alias, Tab, Type, LdbOpts}) ->
 	    },
     {ok, recover_size_info(St)}.
 
-do_load_table(Tab, LdbOpts) ->
+do_load_table(Tab, RdbOpts) ->
     MPd = data_mountpoint(Tab),
     ?dbg("** Mountpoint: ~p~n ~s~n", [MPd, os:cmd("ls " ++ MPd)]),
     Ets = ets:new(tab_name(icache,Tab), [set, protected, named_table]),
-    {ok, Ref} = open_rocksdb(MPd, LdbOpts),
+    {ok, Ref} = open_rocksdb(MPd, RdbOpts),
     rocksdb_to_ets(Ref, Ets),
     {ok, Ref, Ets}.
 
-handle_call({load, Alias, Tab, Type, LdbOpts}, _From,
+handle_call({load, Alias, Tab, Type, RdbOpts}, _From,
             #st{type = Type, alias = Alias, tab = Tab} = St) ->
-    {ok, Ref, Ets} = do_load_table(Tab, LdbOpts),
+    {ok, Ref, Ets} = do_load_table(Tab, RdbOpts),
     {reply, ok, St#st{ref = Ref, ets = Ets}};
 handle_call(get_ref, _From, #st{ref = Ref, type = Type} = St) ->
     {reply, {Ref, Type}, St};
@@ -993,14 +993,14 @@ rocksdb_open_opts({Tab, index, {Pos,_}}) ->
     rocksdb_open_opts_(PosOpts);
 rocksdb_open_opts(Tab) ->
     UserProps = mnesia_lib:val({Tab, user_properties}),
-    LdbOpts = proplists:get_value(rocksdb_opts, UserProps, []),
-    rocksdb_open_opts_(LdbOpts).
+    RdbOpts = proplists:get_value(rocksdb_opts, UserProps, []),
+    rocksdb_open_opts_(RdbOpts).
 
-rocksdb_open_opts_(LdbOpts) ->
+rocksdb_open_opts_(RdbOpts) ->
     lists:foldl(
       fun({K,_} = Item, Acc) ->
               lists:keystore(K, 1, Acc, Item)
-      end, default_open_opts(), LdbOpts).
+      end, default_open_opts(), RdbOpts).
 
 default_open_opts() ->
     [ {create_if_missing, true}
@@ -1016,12 +1016,12 @@ default_open_opts() ->
       , {use_bloomfilter, true}
     ].
 
-destroy_recreate(MPd, LdbOpts) ->
+destroy_recreate(MPd, RdbOpts) ->
     ok = destroy_db(MPd, []),
-    open_rocksdb(MPd, LdbOpts).
+    open_rocksdb(MPd, RdbOpts).
 
-open_rocksdb(MPd, LdbOpts) ->
-    open_rocksdb(MPd, rocksdb_open_opts_(LdbOpts), get_retries()).
+open_rocksdb(MPd, RdbOpts) ->
+    open_rocksdb(MPd, rocksdb_open_opts_(RdbOpts), get_retries()).
 
 %% Code adapted from basho/riak_kv_eleveldb_backend.erl
 open_rocksdb(MPd, Opts, Retries) ->
@@ -1618,7 +1618,7 @@ assert_proper_mountpoint(_Tab, _MPd) ->
 
 data_mountpoint(Tab) ->
     Dir = mnesia_monitor:get_env(dir),
-    filename:join(Dir, tabname(Tab) ++ ".extldb").
+    filename:join(Dir, tabname(Tab) ++ ".extrdb").
 
 tabname({Tab, index, {{Pos},_}}) ->
     atom_to_list(Tab) ++ "-=" ++ atom_to_list(Pos) ++ "=-_ix";
@@ -1665,7 +1665,7 @@ related_resources(Tab) ->
     end.
 
 is_index_dir(F, TabS) ->
-    case re:run(F, TabS ++ "-([0-9]+)-_ix.extldb", [{capture, [1], list}]) of
+    case re:run(F, TabS ++ "-([0-9]+)-_ix.extrdb", [{capture, [1], list}]) of
         nomatch ->
             false;
         {match, [P]} ->

@@ -21,9 +21,9 @@
 -export([describe_env/0,
          get_maxfiles/0, get_maxfiles/1,
          get_avail_ram/0,
-         ldb_tabs/0, ldb_tabs/1,
-         ldb_indexes/0, ldb_indexes/1,
-         count_ldb_tabs/0, count_ldb_tabs/1,
+         rdb_tabs/0, rdb_tabs/1,
+         rdb_indexes/0, rdb_indexes/1,
+         count_rdb_tabs/0, count_rdb_tabs/1,
          calc_sizes/0, calc_sizes/1,
          ideal_max_files/0, ideal_max_files/1,
          max_files/1,
@@ -66,16 +66,16 @@ get_avail_ram({unix,linux}) ->
         re:run(os:cmd("free -g"), "Mem:[ ]+([0-9]+) ",[{capture,[1],list}]),
     list_to_integer(S).
 
-ldb_tabs() ->
-    ldb_tabs(mnesia_lib:dir()).
+rdb_tabs() ->
+    rdb_tabs(mnesia_lib:dir()).
 
-ldb_tabs(Db) ->
-    ldb_tabs(list_dir(Db), Db).
+rdb_tabs(Db) ->
+    rdb_tabs(list_dir(Db), Db).
 
-ldb_tabs(Fs, _Db) ->
+rdb_tabs(Fs, _Db) ->
     lists:flatmap(
       fun(F) ->
-              case re:run(F, "(.+)-_tab\\.extldb",
+              case re:run(F, "(.+)-_tab\\.extrdb",
                           [global,{capture,[1],list}]) of
                   {match, [Match]} ->
                       Match;
@@ -84,16 +84,16 @@ ldb_tabs(Fs, _Db) ->
               end
       end, Fs).
 
-ldb_indexes() ->
-    ldb_indexes(mnesia_lib:dir()).
+rdb_indexes() ->
+    rdb_indexes(mnesia_lib:dir()).
 
-ldb_indexes(Db) ->
-    ldb_indexes(list_dir(Db), Db).
+rdb_indexes(Db) ->
+    rdb_indexes(list_dir(Db), Db).
 
-ldb_indexes(Fs, _Db) ->
+rdb_indexes(Fs, _Db) ->
     lists:flatmap(
       fun(F) ->
-              case re:run(F, "(.+)-([0-9]+)-_ix\\.extldb",
+              case re:run(F, "(.+)-([0-9]+)-_ix\\.extrdb",
                           [global,{capture,[1,2],list}]) of
                   {match, [[T,P]]} ->
                       [{T,P}];
@@ -109,17 +109,17 @@ list_dir(D) ->
     end.
 
 fname({Tab,IxPos}, Dir) ->
-    filename:join(Dir, Tab ++ "-" ++ IxPos ++ "-_ix.extldb");
+    filename:join(Dir, Tab ++ "-" ++ IxPos ++ "-_ix.extrdb");
 fname(Tab, Dir) when is_list(Tab) ->
-    filename:join(Dir, Tab ++ "-_tab.extldb").
+    filename:join(Dir, Tab ++ "-_tab.extrdb").
 
-%% Number of leveldb tables + indexes
-count_ldb_tabs() ->
-    count_ldb_tabs(mnesia_lib:dir()).
+%% Number of rocksdb tables + indexes
+count_rdb_tabs() ->
+    count_rdb_tabs(mnesia_lib:dir()).
 
-count_ldb_tabs(Db) ->
+count_rdb_tabs(Db) ->
     Fs = list_dir(Db),
-    length(ldb_tabs(Fs, Db)) + length(ldb_indexes(Fs, Db)).
+    length(rdb_tabs(Fs, Db)) + length(rdb_indexes(Fs, Db)).
 
 calc_sizes() ->
     calc_sizes(mnesia_lib:dir()).
@@ -127,8 +127,8 @@ calc_sizes() ->
 calc_sizes(D) ->
     lists:sort(
       fun(A,B) -> sort_size(B,A) end,  % rev sort
-      [{T, dir_size(fname(T, D))} || T <- ldb_tabs(D)]
-      ++ [{I, dir_size(fname(I, D))} || I <- ldb_indexes(D)]).
+      [{T, dir_size(fname(T, D))} || T <- rdb_tabs(D)]
+      ++ [{I, dir_size(fname(I, D))} || I <- rdb_indexes(D)]).
 
 ideal_max_files() ->
     ideal_max_files(mnesia_lib:dir()).
