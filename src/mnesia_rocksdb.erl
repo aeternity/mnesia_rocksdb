@@ -253,7 +253,7 @@ i_show_table(I, Move, Limit) ->
 
 init_backend() ->
     stick_rocksdb_dir(),
-    application:start(mnesia_rocksdb),
+    application:ensure_all_started(mnesia_rocksdb),
     ok.
 
 %% Prevent reloading of modules in rocksdb itself during runtime, since it
