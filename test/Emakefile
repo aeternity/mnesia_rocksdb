@@ -1,0 +1,2 @@
+mnesia_rocksdb_xform.
+{'*', [{parse_transform, mnesia_rocksdb_xform},debug_info]}.

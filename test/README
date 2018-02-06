@@ -1,0 +1,17 @@
+To run the mnesia test suite, replacing disc_only_copies references with
+rocksdb_copies:
+
+```
+cd $ERL_TOP
+make release_tests
+cd release/tests/mnesia_test
+cp $MNESIA_ROCKSDB/test/mnesia_rocksdb_backend_xform.erl .
+cp $MNESIA_ROCKSDB/test/Emakefile .
+```
+
+You may use github.com/uwiger/parse_trans, and pretty-print the
+debug_info in the transformed test suite modules using the following alias:
+
+```
+alias pp='escript $PARSE_TRANS_ROOT/ebin/parse_trans_pp.beam'
+```

@@ -1,0 +1,9 @@
+%% -*- erlang-mode -*-
+case os:getenv("DEBUG") of
+    "true" ->
+	Opts = proplists:get_value(erl_opts, CONFIG, []),
+	lists:keystore(erl_opts, 1, CONFIG,
+		       [{d,'DEBUG'} | Opts -- [{d,'DEBUG'}]]);
+    _ ->
+	CONFIG
+end.
