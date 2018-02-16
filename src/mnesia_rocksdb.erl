@@ -1403,7 +1403,7 @@ do_select(Ref, Tab, _Type, MS, AccKeys, Limit) when is_boolean(AccKeys) ->
                limit = Limit},
     with_iterator(Ref, fun(I) -> i_do_select(I, Sel, AccKeys, []) end).
 
-i_do_select(I, #sel{keypat = {Pfx, _KP},
+i_do_select(I, #sel{keypat = Pfx,
                     compiled_ms = MS,
                     limit = Limit} = Sel, AccKeys, Acc) ->
     StartKey =
@@ -1534,27 +1534,26 @@ iterator_next(I, K) ->
 	    Other
     end.
 
-keypat([{HeadPat,Gs,_}|_], KeyPos) when is_tuple(HeadPat) ->
-    KP      = element(KeyPos, HeadPat),
-    KeyVars = extract_vars(KP),
-    Guards  = relevant_guards(Gs, KeyVars),
-    Pfx     = sext:prefix(KP),
-    {Pfx, [{KP, Guards, [true]}]};
-keypat(_, _) ->
-    {<<>>, [{'_',[],[true]}]}.
+keypat([H|T], KeyPos) ->
+    keypat(T, KeyPos, keypat_pfx(H, KeyPos)).
 
-relevant_guards(Gs, Vars) ->
-    case Vars -- ['_'] of
-        [] ->
-            [];
-        Vars1 ->
-            Fun =
-                fun(G) ->
-                        Vg = extract_vars(G),
-                        intersection(Vg, Vars1) =/= [] andalso (Vg--Vars1) == []
-                end,
-            lists:filter(Fun, Gs)
-    end.
+keypat(_, _, <<>>) -> <<>>;
+keypat([H|T], KeyPos, Pfx0) ->
+    Pfx = keypat_pfx(H, KeyPos),
+    keypat(T, KeyPos, common_prefix(Pfx, Pfx0));
+keypat([], _, Pfx) ->
+    Pfx.
+
+common_prefix(<<H, T/binary>>, <<H, T1/binary>>) ->
+    <<H, (common_prefix(T, T1))/binary>>;
+common_prefix(_, _) ->
+    <<>>.
+
+keypat_pfx({HeadPat,_Gs,_}, KeyPos) when is_tuple(HeadPat) ->
+    KP      = element(KeyPos, HeadPat),
+    sext:prefix(KP);
+keypat_pfx(_, _) ->
+    <<>>.
 
 %% ----------------------------------------------------------------------------
 %% COMMON PRIVATE
