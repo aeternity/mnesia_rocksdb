@@ -82,8 +82,10 @@ setup_mnesia() ->
 
 setup() ->
     {atomic,ok} = mnesia:create_table(d, [{disc_copies, [node()]},
+                                          {type, ordered_set},
                                           {record_name, x}]),
     {atomic,ok} = mnesia:create_table(l, [{rocksdb_copies, [node()]},
+                                          {type, ordered_set},
                                           {record_name, x}]),
     ok = mnesia:wait_for_tables([d, l], 30000),
     ok.
@@ -121,7 +123,11 @@ db_cmd() ->
     ?LET(Type, type(),
          proper_types:oneof([{Type, read, key()},
                              {Type, write, key(), value()},
-                             {Type, delete, key()}])).
+                             {Type, delete, key()},
+                             {Type, first},
+                             {Type, next, key()},
+                             {Type, prev, key()},
+                             {Type, last}])).
 
 key() ->
     proper_types:oneof([a,b,c]).
@@ -147,14 +153,26 @@ apply_seq(transaction=X, Tab, [H|T], Acc) ->
               {X,write,K,V} -> mnesia:write(Tab, {x, K, V}, write);
               {_,write,K,V} -> mnesia:dirty_write(Tab, {x,K,V});
               {X,delete,K}  -> mnesia:delete(Tab, K, write);
-              {_,delete,K}  -> mnesia:dirty_delete(Tab,K)
+              {_,delete,K}  -> mnesia:dirty_delete(Tab,K);
+              {X,first}     -> mnesia:first(Tab);
+              {_,first}     -> mnesia:dirty_first(Tab);
+              {X,next,K}    -> mnesia:next(Tab, K);
+              {_,next,K}    -> mnesia:dirty_next(Tab, K);
+              {X,prev,K}    -> mnesia:prev(Tab, K);
+              {_,prev,K}    -> mnesia:dirty_prev(Tab, K);
+              {X,last}      -> mnesia:last(Tab);
+              {_,last}      -> mnesia:dirty_last(Tab)
           end,
     apply_seq(X, Tab, T, [Res|Acc]);
 apply_seq(X, Tab, [H|T], Acc) ->
     Res = case H of
               {_,read, K}   -> mnesia:read(Tab, K, read);
               {_,write,K,V} -> mnesia:write(Tab, {x, K, V}, write);
-              {_,delete,K}  -> mnesia:delete(Tab, K, write)
+              {_,delete,K}  -> mnesia:delete(Tab, K, write);
+              {_,first}     -> mnesia:first(Tab);
+              {_,next,K}    -> mnesia:next(Tab, K);
+              {_,prev,K}    -> mnesia:prev(Tab, K);
+              {_,last}      -> mnesia:last(Tab)
           end,
     apply_seq(X, Tab, T, [Res|Acc]);
 apply_seq(_, _, [], Acc) ->

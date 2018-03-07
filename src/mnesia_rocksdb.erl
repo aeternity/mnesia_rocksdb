@@ -605,12 +605,12 @@ delete(Alias, Tab, Key) ->
 
 first(Alias, Tab) ->
     {Ref, _Type} = get_ref(Alias, Tab),
-    with_keys_only_iterator(Ref, fun i_first/1).
+    with_iterator(Ref, fun i_first/1).
 
 %% PRIVATE ITERATOR
 i_first(I) ->
     case ?rocksdb:iterator_move(I, <<?DATA_START>>) of
-	{ok, First} ->
+	{ok, First, _} ->
 	    decode_key(First);
 	_ ->
 	    '$end_of_table'
@@ -630,14 +630,14 @@ insert(Alias, Tab, Obj) ->
 
 last(Alias, Tab) ->
     {Ref, _Type} = get_ref(Alias, Tab),
-    with_keys_only_iterator(Ref, fun i_last/1).
+    with_iterator(Ref, fun i_last/1).
 
 %% PRIVATE ITERATOR
 i_last(I) ->
     case ?rocksdb:iterator_move(I, last) of
-	{ok, << ?INFO_TAG, _/binary >>} ->
+	{ok, << ?INFO_TAG, _/binary >>, _} ->
 	    '$end_of_table';
-	{ok, Last} ->
+	{ok, Last, _} ->
 	    decode_key(Last);
 	_ ->
 	    '$end_of_table'
@@ -703,18 +703,18 @@ match_delete(Alias, Tab, Pat) when is_tuple(Pat) ->
 next(Alias, Tab, Key) ->
     {Ref, _Type} = get_ref(Alias, Tab),
     EncKey = encode_key(Key),
-    with_keys_only_iterator(Ref, fun(I) -> i_next(I, EncKey, Key) end).
+    with_iterator(Ref, fun(I) -> i_next(I, EncKey, Key) end).
 
 %% PRIVATE ITERATOR
 i_next(I, EncKey, Key) ->
     case ?rocksdb:iterator_move(I, EncKey) of
-        {ok, EncKey} ->
+        {ok, EncKey, _} ->
             i_next_loop(?rocksdb:iterator_move(I, next), I, Key);
         Other ->
             i_next_loop(Other, I, Key)
     end.
 
-i_next_loop({ok, EncKey}, I, Key) ->
+i_next_loop({ok, EncKey, _}, I, Key) ->
     case decode_key(EncKey) of
         Key ->
             i_next_loop(?rocksdb:iterator_move(I, next), I, Key);
@@ -727,12 +727,12 @@ i_next_loop(_, _I, _Key) ->
 prev(Alias, Tab, Key0) ->
     {Ref, _Type} = call(Alias, Tab, get_ref),
     Key = encode_key(Key0),
-    with_keys_only_iterator(Ref, fun(I) -> i_prev(I, Key) end).
+    with_iterator(Ref, fun(I) -> i_prev(I, Key) end).
 
 %% PRIVATE ITERATOR
 i_prev(I, Key) ->
     case ?rocksdb:iterator_move(I, Key) of
-	{ok, _} ->
+	{ok, _, _} ->
 	    i_move_to_prev(I, Key);
 	{error, invalid_iterator} ->
 	    i_last(I)
@@ -741,11 +741,11 @@ i_prev(I, Key) ->
 %% PRIVATE ITERATOR
 i_move_to_prev(I, Key) ->
     case ?rocksdb:iterator_move(I, prev) of
-	{ok, << ?INFO_TAG, _/binary >>} ->
+	{ok, << ?INFO_TAG, _/binary >>, _} ->
 	    '$end_of_table';
-	{ok, Prev} when Prev < Key ->
+	{ok, Prev, _} when Prev < Key ->
 	    decode_key(Prev);
-	{ok, _} ->
+	{ok, _, _} ->
 	    i_move_to_prev(I, Key);
 	_ ->
 	    '$end_of_table'
@@ -836,12 +836,12 @@ with_iterator(Ref, F) ->
     end.
 
 %% keys_only iterator: iterator_move/2 returns {ok, EncKey}
-with_keys_only_iterator(Ref, F) ->
-    {ok, I} = ?rocksdb:iterator(Ref, [], keys_only),
-    try F(I)
-    after
-        ?rocksdb:iterator_close(I)
-    end.
+%% with_keys_only_iterator(Ref, F) ->
+%%     {ok, I} = ?rocksdb:iterator(Ref, [], keys_only),
+%%     try F(I)
+%%     after
+%%         ?rocksdb:iterator_close(I)
+%%     end.
 
 %% TODO - use with_keys_only_iterator for match_delete
 
@@ -1246,7 +1246,7 @@ do_delete(Key, #st{ets = Ets, ref = Ref, maintain_size = true}) ->
 
 do_delete_bag(Sz, Key, Ref, TSz) ->
     Found = 
-	with_keys_only_iterator(
+	with_iterator(
 	  Ref, fun(I) ->
 		       do_delete_bag_(Sz, Key, ?rocksdb:iterator_move(I, Key),
 				      Ref, I)
@@ -1267,10 +1267,10 @@ do_delete_bag(Sz, Key, Ref, TSz) ->
 
 do_delete_bag_(Sz, K, Res, Ref, I) ->
     case Res of
-	{ok, K} ->
+	{ok, K, _} ->
 	    do_delete_bag_(Sz, K, ?rocksdb:iterator_move(I, next),
 			   Ref, I);
-	{ok, <<K:Sz/binary, _:?BAG_CNT>> = Key} ->
+	{ok, <<K:Sz/binary, _:?BAG_CNT>> = Key, _} ->
 	    [Key |
 	     do_delete_bag_(Sz, K, ?rocksdb:iterator_move(I, next),
 			    Ref, I)];
