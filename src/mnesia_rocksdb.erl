@@ -161,6 +161,14 @@
 -define(dbg(Fmt, Args), ok).
 -endif.
 
+-ifdef(OTP_RELEASE). %% this implies 21 or higher
+-define(EXCEPTION(Class, Reason, Stacktrace), Class:Reason:Stacktrace).
+-define(GET_STACK(Stacktrace), Stacktrace).
+-else.
+-define(EXCEPTION(Class, Reason, _), Class:Reason).
+-define(GET_STACK(_), erlang:get_stacktrace()).
+-endif.
+
 %% ----------------------------------------------------------------------------
 %% RECORDS
 %% ----------------------------------------------------------------------------
@@ -433,8 +441,8 @@ close_table_(Alias, Tab) ->
 pp_stack() ->
     Trace = try throw(true)
             catch
-                _:_ ->
-                    case erlang:get_stacktrace() of
+                ?EXCEPTION(_, _, Stacktrace) ->
+                    case ?GET_STACK(Stacktrace) of
                         [_|T] -> T;
                         [] -> []
                     end
