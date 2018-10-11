@@ -1,0 +1,11 @@
+sudo: false
+language: erlang
+otp_release:
+  - 21.3.4
+  - 20.3
+
+script:
+  - wget -c https://github.com/erlang/rebar3/releases/download/3.9.1/rebar3
+  - chmod +x rebar3
+  - REBAR3=./rebar3 make
+  - REBAR3=./rebar3 make test

@@ -1,5 +1,5 @@
 suite=$(if $(SUITE), suite=$(SUITE), )
-REBAR3=$(shell which rebar3 || echo ./rebar3)
+REBAR3?=rebar3
 
 .PHONY: all check test clean run
 
