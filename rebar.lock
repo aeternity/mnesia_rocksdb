@@ -1,8 +1,8 @@
 {"1.1.0",
-[{<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.2.0">>},0},
+[{<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.3.1">>},0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.6.0">>},0}]}.
 [
 {pkg_hash,[
- {<<"rocksdb">>, <<"5679E2289E4BE1E0F53021D898E974B31F2CF0B3A3CEC83529B7766D45F90FAF">>},
+ {<<"rocksdb">>, <<"9626FD6B5A02351D4976DDE41B121677A08D3009FDD6CCA13DA162C23AD12392">>},
  {<<"sext">>, <<"E5466AC5A9622AB1A6BCA4311913515082BB0F6A6799C73400906C0CD141AD5D">>}]}
 ].
