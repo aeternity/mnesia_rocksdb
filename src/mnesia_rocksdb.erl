@@ -182,7 +182,7 @@
 	    , type
 	    , size_warnings			% integer()
 	    , maintain_size			% boolean()
-            , on_write_error = verbose          :: verbose | warning | error | fatal
+            , on_write_error = verbose          :: debug | verbose | warning | error | fatal
 	    }).
 
 %% ----------------------------------------------------------------------------
@@ -1592,7 +1592,8 @@ db_delete(Ref, K, Opts, St) ->
 write_result(ok, _, _, _) ->
     ok;
 write_result(Res, Op, Args, #st{on_write_error = Rpt}) ->
-    mnesia_lib:Rpt("FAILED rocksdb:~p(" ++ rpt_fmt(Args) ++ ") -> ~p~n",
+    RptOp = rpt_op(Rpt),
+    mnesia_lib:RptOp("FAILED rocksdb:~p(" ++ rpt_fmt(Args) ++ ") -> ~p~n",
                    [Op | Args] ++ [Res]),
     if Rpt == fatal; Rpt == error ->
             badarg;
@@ -1603,8 +1604,14 @@ write_result(Res, Op, Args, #st{on_write_error = Rpt}) ->
 rpt_fmt([_|T]) ->
     lists:append(["~p" | [", ~p" || _ <- T]]).
 
+rpt_op(debug) ->
+    dbg_out;
+rpt_op(Op) ->
+    Op.
+
 valid_mnesia_op(Op) ->
-    if Op==verbose
+    if Op==debug
+     ; Op==verbose
      ; Op==warning
      ; Op==error
      ; Op==fatal ->
