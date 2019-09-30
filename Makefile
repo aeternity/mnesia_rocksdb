@@ -12,9 +12,13 @@ docs:
 check:
 	$(REBAR3) dialyzer
 
-test:
+eunit:
 	$(REBAR3) eunit $(suite)
 
+ct:
+	$(REBAR3) ct $(suite)
+
+test: eunit ct
 
 conf_clean:
 	@:
