@@ -12,5 +12,3 @@ jobs:
     steps:
       - checkout
       - run: make test
-      - store_artifacts:
-          path: _build/test/logs
