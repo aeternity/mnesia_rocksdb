@@ -1,0 +1,14 @@
+version: 2.1
+
+executors:
+  aebuilder:
+    docker:
+      - image: aeternity/builder
+        user: builder
+
+jobs:
+  build:
+    executor: aebuilder
+    steps:
+      - checkout
+      - run: make test
