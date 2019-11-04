@@ -33,6 +33,68 @@ This means that a prefix key identifies the start of the sequence of
 entries whose keys match the prefix. The backend uses this to optimize
 selects on prefix keys.
 
+## Customization
+
+RocksDB supports a number of customization options. These can be specified
+by providing a `{Key, Value}` list named `rocksdb_opts` under `user_properties`,
+for example:
+
+```erlang
+mnesia:create_table(foo, [{rocksdb_copies, [node()]},
+                          ...
+                          {user_properties,
+                              [{rocksdb_opts, [{max_open_files, 1024}]}]
+                          }])
+```
+
+Consult the [RocksDB documentation](https://github.com/facebook/rocksdb/wiki/Setup-Options-and-Basic-Tuning)
+for information on configuration parameters. Also see the section below on handling write errors.
+
+The default configuration for tables in `mnesia_rocksdb` is:
+```
+default_open_opts() ->
+    [ {create_if_missing, true}
+      , {cache_size,
+         list_to_integer(get_env_default("ROCKSDB_CACHE_SIZE", "32212254"))}
+      , {block_size, 1024}
+      , {max_open_files, 100}
+      , {write_buffer_size,
+         list_to_integer(get_env_default(
+                           "ROCKSDB_WRITE_BUFFER_SIZE", "4194304"))}
+      , {compression,
+         list_to_atom(get_env_default("ROCKSDB_COMPRESSION", "true"))}
+      , {use_bloomfilter, true}
+    ].
+```
+
+It is also possible, for larger databases, to produce a tuning parameter file.
+This is experimental, and mostly copied from `mnesia_leveldb`. Consult the
+source code in `mnesia_rocksdb_tuning.erl` and `mnesia_rocksdb_params.erl`.
+Contributions are welcome.
+
+## Handling of errors in write operations
+
+The RocksDB update operations return either `ok` or `{error, any()}`.
+Since the actual updates are performed after the 'point-of-no-return',
+returning an `error` result will cause mnesia to behave unpredictably, since
+the operations are expected to simply work.
+
+An `on_write_error` option can be provided, per-table, in the `rocksdb_opts`
+user property (see [Customization](#customization) above). Supported values indicate at which level an error
+indication should be reported. Mnesia may save reported events in RAM, and may
+also print them, depending on the debug level (controlled with `mnesia:set_debug_level/1`).
+
+Mnesia debug levels are, in increasing detail, `none | verbose | debug | trace`
+The supported values for `on_write_error` are:
+
+ | Value   | Saved at debug level | Printed at debug level | Action    |
+ | ------- | -------------------- | ---------------------- | --------- |
+ | debug   | unless none          | verbose, debug, trace  | ignore    |
+ | verbose | unless none          | verbose, debug, trace  | ignore    |
+ | warning | always               | always                 | ignore    |
+ | error   | always               | always                 | exception |
+ | fatal   | always               | always                 | core dump |
+
 ## Caveats
 
 Avoid placing `bag` tables in RocksDB. Although they work, each write
