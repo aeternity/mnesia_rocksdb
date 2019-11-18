@@ -29,7 +29,6 @@ groups() ->
 error_handling(_Config) ->
     mnesia_rocksdb_error_handling:run().
 
-
 init_per_suite(Config) ->
     Config.
 

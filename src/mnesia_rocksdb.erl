@@ -23,14 +23,12 @@
 
 -module(mnesia_rocksdb).
 
-
 %% ----------------------------------------------------------------------------
 %% BEHAVIOURS
 %% ----------------------------------------------------------------------------
 
 -behaviour(mnesia_backend_type).
 -behaviour(gen_server).
-
 
 %% ----------------------------------------------------------------------------
 %% EXPORTS
@@ -903,8 +901,8 @@ init({Alias, Tab, Type, RdbOpts}) ->
     process_flag(trap_exit, true),
     try
         {ok, Ref, Ets} = do_load_table(Tab, RdbOpts),
-        OnWriteError = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
-        OnWriteErrorStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
+        OWE = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
+        OWEStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
         St = #st{ ets = Ets
                 , ref = Ref
                 , alias = Alias
@@ -912,8 +910,8 @@ init({Alias, Tab, Type, RdbOpts}) ->
                 , type = Type
                 , size_warnings = 0
                 , maintain_size = should_maintain_size(Tab)
-                , on_write_error = OnWriteError
-                , on_write_error_store = OnWriteErrorStore
+                , on_write_error = OWE
+                , on_write_error_store = OWEStore
                 },
         {ok, recover_size_info(St)}
     catch
@@ -1624,7 +1622,7 @@ write_result(ok, _, _, _) ->
     ok;
 write_result(Res, Op, Args, #st{tab = Tab, on_write_error = Rpt, on_write_error_store = OWEStore}) ->
     RptOp = rpt_op(Rpt),
-    maybe_store_error(OWEStore, Res, Tab, Op, Args, erlang:system_time(second)),
+    maybe_store_error(OWEStore, Res, Tab, Op, Args, erlang:system_time(millisecond)),
     mnesia_lib:RptOp("FAILED rocksdb:~p(" ++ rpt_fmt(Args) ++ ") -> ~p~n",
                      [Op | Args] ++ [Res]),
     if Rpt == fatal; Rpt == error ->
@@ -1649,7 +1647,9 @@ maybe_store_error(Table, Err, IntTable, write, [_, List, _], Time) ->
 
 insert_error(Table, {Type, _, _}, K, Err, Time) ->
     {_, K1} = decode_key(K),
-    ets:insert(Table, {{Type, K1}, Err, Time}).
+    ets:insert(Table, {{Type, K1}, Err, Time});
+insert_error(Table, Type, K, Err, Time) when is_atom(Type) ->
+    ets:insert(Table, {{Type, K}, Err, Time}).
 
 rpt_fmt([_|T]) ->
     lists:append(["~p" | [", ~p" || _ <- T]]).
