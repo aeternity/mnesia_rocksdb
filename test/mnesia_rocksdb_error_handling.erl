@@ -52,7 +52,7 @@ tab_name(Type, Level, MaintainSz) ->
 user_props(Level, MaintainSz) ->
     [{maintain_sz, MaintainSz},
      {rocksdb_opts, [ {on_write_error, Level}
-		    , {on_write_error_store, ?MODULE} ]}].
+                    , {on_write_error_store, ?MODULE} ]}].
 
 start_mnesia() ->
     mnesia_rocksdb_tlib:start_mnesia(reset),
