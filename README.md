@@ -113,7 +113,7 @@ where `Table` refers to the Mnesia table name, `Key` is the primary key being us
 `Error` is the error the backend encounteredA and `InsertedAt` refers to the time
 the error was encounterd as system time in milliseconds.
 
-The backend will only insert entries and otherwise not managed the table. Thus, clients
+The backend will only insert entries and otherwise not manage the table. Thus, clients
 are expected to clean up the table during runtime to prevent memory leakage.
 
 ## Caveats
