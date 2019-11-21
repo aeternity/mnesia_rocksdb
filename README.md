@@ -1,11 +1,13 @@
 # mnesia_rocksdb
-A RocksDb backend for Mnesia
+
+A RocksDB backend for Mnesia.
 
 This permits Erlang/OTP applications to use RocksDB as a backend for
 mnesia tables. It is based on Klarna's `mnesia_eleveldb`.
 
 ## Prerequisites
-- rocksdb
+
+- rocksdb (included as dependency)
 - Erlang/OTP 20.0 or newer (https://github.com/erlang/otp)
 
 ## Getting started
@@ -76,13 +78,16 @@ Contributions are welcome.
 
 The RocksDB update operations return either `ok` or `{error, any()}`.
 Since the actual updates are performed after the 'point-of-no-return',
-returning an `error` result will cause mnesia to behave unpredictably, since
-the operations are expected to simply work.
+returning an `error` result will cause mnesia to behave unpredictably,
+since the operations are expected to simply work.
+
+### Option 1: `on_write_error`
 
 An `on_write_error` option can be provided, per-table, in the `rocksdb_opts`
-user property (see [Customization](#customization) above). Supported values indicate at which level an error
-indication should be reported. Mnesia may save reported events in RAM, and may
-also print them, depending on the debug level (controlled with `mnesia:set_debug_level/1`).
+user property (see [Customization](#customization) above).
+Supported values indicate at which level an error indication should be reported.
+Mnesia may save reported events in RAM, and may also print them,
+depending on the debug level (controlled with `mnesia:set_debug_level/1`).
 
 Mnesia debug levels are, in increasing detail, `none | verbose | debug | trace`
 The supported values for `on_write_error` are:
@@ -94,6 +99,22 @@ The supported values for `on_write_error` are:
  | warning | always               | always                 | ignore    |
  | error   | always               | always                 | exception |
  | fatal   | always               | always                 | core dump |
+
+### Option 2: `on_write_error_store`
+
+An `on_write_error_store` option can be provided, per-table, in the `rocksdb_opts`
+user property (see [Customization](#customization) above).
+When set, the backend will use the value of the option as the name for an ETS table
+which is used as storage for runtime write errors. The table must be set up outside
+of the backend by the clients themselves.
+
+Entries to the table are in the form of a tuple `{{Table, Key}, Error, InsertedAt}`
+where `Table` refers to the Mnesia table name, `Key` is the primary key being used by Mnesia,
+`Error` is the error encountered by the backend, and `InsertedAt` refers to the time
+the error was encountered as system time in milliseconds.
+
+The backend will only insert entries and otherwise not manage the table. Thus, clients
+are expected to clean up the table during runtime to prevent memory leakage.
 
 ## Caveats
 

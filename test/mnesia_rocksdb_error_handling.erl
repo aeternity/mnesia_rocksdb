@@ -31,6 +31,14 @@ setup() ->
 
 create_tab(Type, Level, MaintainSz) ->
     TabName = tab_name(Type, Level, MaintainSz),
+    %% create error store before the table
+    case ets:info(?MODULE) of
+        undefined ->
+            ?MODULE = ets:new(?MODULE, [bag, public, named_table]),
+            ok;
+        _ ->
+            ok
+    end,
     UserProps = user_props(Level, MaintainSz),
     {atomic, ok} = mnesia:create_table(TabName, [{rdb, [node()]},
                                                  {user_properties, UserProps}]),
@@ -43,7 +51,8 @@ tab_name(Type, Level, MaintainSz) ->
 
 user_props(Level, MaintainSz) ->
     [{maintain_sz, MaintainSz},
-     {rocksdb_opts, [{on_write_error, Level}]}].
+     {rocksdb_opts, [ {on_write_error, Level}
+                    , {on_write_error_store, ?MODULE} ]}].
 
 start_mnesia() ->
     mnesia_rocksdb_tlib:start_mnesia(reset),
@@ -94,7 +103,11 @@ expect_error(Level, Tab) ->
             ok
     after 1000 ->
             error({expected_error, [Level, Tab]})
-    end.
+
+    end,
+    %% Also verify that an error entry has been written into the error store.
+    1 = ets:select_delete(?MODULE, [{{{Tab, '_'}, '_', '_'}, [], [true]}]),
+    ok.
 
 rpt_tag(fatal  ) -> mnesia_fatal;
 rpt_tag(error  ) -> mnesia_error;
