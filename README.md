@@ -110,8 +110,8 @@ of the backend by the clients themselves.
 
 Entries to the table are in the form of a tuple `{{Table, Key}, Error, InsertedAt}`
 where `Table` refers to the Mnesia table name, `Key` is the primary key being used by Mnesia,
-`Error` is the error the backend encounteredA and `InsertedAt` refers to the time
-the error was encounterd as system time in milliseconds.
+`Error` is the error encountered by the backend, and `InsertedAt` refers to the time
+the error was encountered as system time in milliseconds.
 
 The backend will only insert entries and otherwise not manage the table. Thus, clients
 are expected to clean up the table during runtime to prevent memory leakage.
