@@ -5,6 +5,8 @@ executors:
     docker:
       - image: aeternity/builder
         user: builder
+    environment:
+      ERLANG_ROCKSDB_BUILDOPTS: "-j2"
 
 jobs:
   build:
