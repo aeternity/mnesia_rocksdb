@@ -6,7 +6,7 @@ executors:
       - image: aeternity/builder
         user: builder
     environment:
-      ERLANG_ROCKSDB_BUILDOPTS: "-DWITH_BUNDLE_LZ4=ON -j2"
+      ERLANG_ROCKSDB_BUILDOPTS: "-j2"
 
 jobs:
   build:
