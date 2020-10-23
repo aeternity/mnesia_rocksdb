@@ -5,7 +5,8 @@ executors:
     docker:
       - image: aeternity/builder
         user: builder
-    resource_class: medium+
+    environment:
+      ERLANG_ROCKSDB_BUILDOPTS: "-DWITH_BUNDLE_LZ4=ON -j2"
 
 jobs:
   build:
