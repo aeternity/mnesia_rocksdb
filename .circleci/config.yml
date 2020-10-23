@@ -5,6 +5,7 @@ executors:
     docker:
       - image: aeternity/builder
         user: builder
+    resource_class: medium+
 
 jobs:
   build:
