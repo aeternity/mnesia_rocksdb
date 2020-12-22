@@ -1,11 +1,15 @@
 {"1.2.0",
-[{<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.7.0">>},0},
+[{<<"hut">>,{pkg,<<"hut">>,<<"1.3.0">>},0},
+ {<<"rocksdb">>,
+  {git,"https://gitlab.com/seanhinde/erlang-rocksdb.git",
+       {ref,"9ae378391ffc94200bde24efcd7a4921eba688d0"}},
+  0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.8.0">>},0}]}.
 [
 {pkg_hash,[
- {<<"rocksdb">>, <<"5D23319998A7FCE5FFD5D7824116C905CABA7F91BAF8EDDABD0180F1BB272CEF">>},
+ {<<"hut">>, <<"71F2F054E657C03F959CF1ACC43F436EA87580696528CA2A55C8AFB1B06C85E7">>},
  {<<"sext">>, <<"90A95B889F5C781B70BBCF44278B763148E313C376B60D87CE664CB1C1DD29B5">>}]},
 {pkg_hash_ext,[
- {<<"rocksdb">>, <<"A4BDC5DD80ED137161549713062131E8240523787EBE7B51DF61CFB48B1786CE">>},
+ {<<"hut">>, <<"7E15D28555D8A1F2B5A3A931EC120AF0753E4853A4C66053DB354F35BF9AB563">>},
  {<<"sext">>, <<"BC6016CB8690BAF677EACACFE6E7CADFEC8DC7E286CBBED762F6CD55B0678E73">>}]}
 ].
