@@ -30,6 +30,8 @@
 -behaviour(mnesia_backend_type).
 -behaviour(gen_server).
 
+-dialyzer(no_undefined_callbacks).
+
 %% ----------------------------------------------------------------------------
 %% EXPORTS
 %% ----------------------------------------------------------------------------
@@ -120,6 +122,12 @@
 
 -export([ix_prefixes/3]).
 
+%% Exposed low-level helpers
+-export([get_ref/2,               %% (Alias, Tab) -> {RocksDbHandle, TabType}
+         encode_key/1,            %% (Key) -> EncodedKey
+         decode_key/1,            %% (EncodedKey) -> Key
+         encode_val/1,            %% (Value) -> EncodedValue
+         decode_val/1]).          %% (EncodedValue) -> Value
 
 %% ----------------------------------------------------------------------------
 %% DEFINES
@@ -190,6 +198,22 @@
             , on_write_error = ?WRITE_ERR_DEFAULT :: on_write_error()
             , on_write_error_store = ?WRITE_ERR_STORE_DEFAULT :: on_write_error_store()
             }).
+
+-type data_tab() :: atom().
+-type index_pos() :: integer() | {atom()}.
+-type index_type() :: ordered.
+-type index_info() :: {index_pos(), index_type()}.
+-type retainer_name() :: any().
+-type index_tab() :: {data_tab(), index, index_info()}.
+-type retainer_tab() :: {data_tab(), retainer, retainer_name()}.
+
+-type alias() :: atom().
+-type table_type() :: set | ordered_set | bag.
+-type table() :: data_tab() | index_tab() | retainer_tab().
+
+-export_type([alias/0,
+              table/0,
+              table_type/0]).
 
 %% ----------------------------------------------------------------------------
 %% CONVENIENCE API
@@ -445,11 +469,6 @@ close_table_(Alias, Tab) ->
                  [self(), Tab]),
             ok;
         {ok, _} ->
-            ok;
-        _Other ->
-            ?dbg("~p: close_table_(~p) -> _Other = ~p~n",
-                 [self(), Tab, _Other]),
-            mnesia_ext_sup:stop_proc(Tab),
             ok
     end.
 
@@ -474,8 +493,6 @@ pp_calls(I, [{M,F,A,Pos} | T]) ->
     [Pp(M,F,A,Pos)|[["\n",Spc,Pp(M1,F1,A1,P1)] || {M1,F1,A1,P1} <- T]].
 
 pp_pos([]) -> "";
-pp_pos(L) when is_integer(L) ->
-    [" (", integer_to_list(L), ")"];
 pp_pos([{file,_},{line,L}]) ->
     [" (", integer_to_list(L), ")"].
 -endif.
@@ -1420,9 +1437,7 @@ read_info(Item, Default, Ets) ->
     end.
 
 tab_name(icache, Tab) ->
-    list_to_atom("mnesia_ext_icache_" ++ tabname(Tab));
-tab_name(info, Tab) ->
-    list_to_atom("mnesia_ext_info_" ++ tabname(Tab)).
+    list_to_atom("mnesia_ext_icache_" ++ tabname(Tab)).
 
 proc_name(_Alias, Tab) ->
     list_to_atom("mnesia_ext_proc_" ++ tabname(Tab)).
@@ -1464,8 +1479,7 @@ needs_key_only([{HP,_,Body}]) ->
     not(wild_in_body(BodyVars) orelse
         case bound_in_headpat(HP) of
             {all,V} -> lists:member(V, BodyVars);
-            none    -> false;
-            Vars    -> any_in_body(lists:keydelete(2,1,Vars), BodyVars)
+            Vars when is_list(Vars) -> any_in_body(lists:keydelete(2,1,Vars), BodyVars)
         end);
 needs_key_only(_) ->
     %% don't know
@@ -1502,10 +1516,7 @@ bound_in_headpat(HP) when is_atom(HP) ->
     {all, HP};
 bound_in_headpat(HP) when is_tuple(HP) ->
     [_|T] = tuple_to_list(HP),
-    map_vars(T, 2);
-bound_in_headpat(_) ->
-    %% this is not the place to throw an exception
-    none.
+    map_vars(T, 2).
 
 map_vars([H|T], P) ->
     case extract_vars(H) of
@@ -1687,9 +1698,11 @@ keypos({_, retainer, _}) ->
 keypos(Tab) when is_atom(Tab) ->
     2.
 
+-spec encode_key(any()) -> binary().
 encode_key(Key) ->
     sext:encode(Key).
 
+-spec decode_key(binary()) -> any().
 decode_key(CodedKey) ->
     case sext:partial_decode(CodedKey) of
         {full, Result, _} ->
@@ -1698,9 +1711,11 @@ decode_key(CodedKey) ->
             error(badarg, CodedKey)
     end.
 
+-spec encode_val(any()) -> binary().
 encode_val(Val) ->
     term_to_binary(Val).
 
+-spec decode_val(binary()) -> any().
 decode_val(CodedVal) ->
     binary_to_term(CodedVal).
 
@@ -1794,6 +1809,7 @@ is_retainer_dir(F, TabS) ->
             {true, Name}
     end.
 
+-spec get_ref(alias(), table()) -> {rocksdb:db_handle(), table_type()}.
 get_ref(Alias, Tab) ->
     call(Alias, Tab, get_ref).
 
