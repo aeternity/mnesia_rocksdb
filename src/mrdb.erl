@@ -6,6 +6,7 @@
         , tx_commit/1
         , with_iterator/2, with_iterator/3
         , read/2         , read/3
+        , index_read/3
         , insert/2       , insert/3
         , delete/2       , delete/3
         , match_delete/2
@@ -155,11 +156,11 @@ insert(Tab, Obj) ->
 
 -spec insert(ref_or_tab(), obj(), write_options()) -> ok.
 insert(Tab, Obj, Opts) ->
-    #{name := Name} = ensure_ref(Tab),
+    #{name := Name} = Ref = ensure_ref(Tab),
     Pos = keypos(Name),
     Key = element(Pos, Obj),
     EncVal = encode_val(setelement(Pos, Obj, [])),
-    insert_(ensure_ref(Tab), Key, encode_key(Key), EncVal, Obj, Opts).
+    insert_(Ref, Key, encode_key(Key), EncVal, Obj, Opts).
 
 insert_(#{semantics := bag} = Ref, Key, EncKey, EncVal, Obj, Opts) ->
     batch_if_index(Ref, insert, bag, fun insert_bag/4, Key, EncKey, EncVal, Obj, Opts);
@@ -191,8 +192,9 @@ update_index(Ixs, insert, SoB, Name, R, Key, Obj, Opts) ->
 update_index(Ixs, delete, _SoB, Name, R, Key, _Obj, Opts) ->
     update_index_d(Ixs, Name, R, Key, Opts).
 
-update_index_i([{Pos,ordered}|Ixs], SoB, Name, R, Key, EncVal, Obj, Opts) ->
-    Tab = {Name, index, Pos},
+update_index_i([{_Pos,ordered} = I|Ixs],
+               SoB, Name, R, Key, EncVal, Obj, Opts) ->
+    Tab = {Name, index, I},
     #{ix_vals_f := IxValsF} = IRef = ensure_ref(Tab, R),
     NewVals = IxValsF(Obj),
     case SoB of
@@ -211,8 +213,8 @@ update_index_i([{Pos,ordered}|Ixs], SoB, Name, R, Key, EncVal, Obj, Opts) ->
 update_index_i([], _, _, _, _, _, _, _) ->
     ok.
 
-update_index_d([{Pos,ordered}|Ixs], Name, R, Key, Opts) ->
-    Tab = {Name, index, Pos},
+update_index_d([{_Pos,ordered} = I|Ixs], Name, R, Key, Opts) ->
+    Tab = {Name, index, I},
     #{ix_vals_f := IxValsF} = IRef = ensure_ref(Tab, R),
     Old = read(R, Key, Opts),
     lists:foreach(
@@ -284,6 +286,44 @@ read_bag_i_(Sz, Enc, Res, K, I, KP) ->
             []
     end.
 
+index_read(Tab, Val, Ix) ->
+    index_read_(ensure_ref(Tab), Val, Ix).
+
+index_read_(#{name := Main} = Ref, Val, Ix) ->
+    I = case Ix of
+            _ when is_atom(Ix) ->
+                {attr_pos(Ix, Ref), ordered};
+            {_} ->
+                Ix;
+            _ when is_integer(Ix) ->
+                {Ix, ordered}
+        end,
+    IxRef = ensure_ref({Main, index, I}),
+    IxValPfx = sext:prefix({Val,'_'}),
+    Sz = byte_size(IxValPfx),
+    with_iterator(
+      IxRef,
+      fun(It) ->
+              index_read_i(rocksdb:iterator_move(It, IxValPfx),
+                           It, IxValPfx, Sz, Ref)
+      end).
+
+attr_pos(A, #{attr_pos := AP}) ->
+    maps:get(A, AP).
+
+index_read_i({ok, K, _}, I, Pfx, Sz, Ref) ->
+    case K of
+        <<Pfx:Sz/binary, _/binary>> ->
+            {_, FKey} = sext:decode(K),
+            read(Ref, FKey) ++
+                index_read_i(rocksdb:iterator_move(I, next),
+                             I, Pfx, Sz, Ref);
+        _ ->
+            []
+    end;
+index_read_i({error, invalid_iterator}, _, _, _, _) ->
+    [].
+
 as_batch(Tab, F) ->
     as_batch(Tab, F, []).
 
@@ -297,8 +337,12 @@ as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
     {ok, Batch} = rocksdb:batch(),
     try F(R#{batch => Batch}) of
         Res ->
-            rocksdb:write_batch(DbRef, Batch, write_opts(R, Opts)),
-            {ok, Res}
+            case rocksdb:write_batch(DbRef, Batch, write_opts(R, Opts)) of
+                ok ->
+                    Res;
+                {error, Reason} ->
+                    abort(Reason)
+            end
     after
         rocksdb:release_batch(Batch)
     end.

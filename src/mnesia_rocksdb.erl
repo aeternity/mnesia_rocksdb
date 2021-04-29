@@ -756,7 +756,7 @@ handle_call({create_table, Tab, Props}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
     case mnesia_rocksdb_admin:create_table(Alias, Tab, Props) of
         {ok, Ref} ->
-            {reply, ok, St#st{ref = Ref}};
+            {reply, ok, St#st{ref = maybe_set_ref_mode(Ref)}};
         Other ->
             {reply, Other, St}
     end;
