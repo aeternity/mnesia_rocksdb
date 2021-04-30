@@ -295,6 +295,8 @@ handle_req(_Alias, {get_ref, Name}, Backend, #st{} = St) ->
     case find_cf(Name, Backend) of
         {ok, #{status := open} = Ref} ->
             {reply, {ok, Ref}, St};
+        {ok, #{status := pre_existing}} ->      % not open - treat as not_found
+            {reply, {error, not_found}, St};
         error ->
             {reply, {error, not_found}, St}
     end;
