@@ -1,3 +1,38 @@
+%% @doc Mid-level access API for Mnesia-managed rocksdb tables
+%%
+%% This module implements access functions for the mnesia_rocksdb
+%% backend plugin. The functions are designed to also support
+%% direct access to rocksdb with little overhead. Such direct
+%% access will maintain existing indexes, but not support
+%% replication.
+%%
+%% Each table has a metadata structure stored as a persistent
+%% term for fast access. The structure of the metadata is as
+%% follows:
+%%
+%% ```
+%% #{ name       := <Logical table name>
+%%  , db_ref     := <Rocksdb database Ref>
+%%  , cf_handle  := <Rocksdb column family handle>
+%%  , batch      := <Batch reference, if any>
+%%  , tx_handle  := <Rocksdb transaction handle, if any>
+%%  , attr_pos   := #{AttrName := Pos}
+%%  , mode       := <Set to 'mnesia' for mnesia access flows>
+%%  , properties := <Mnesia table props in map format
+%%  , type       := column_family | standalone
+%%  }
+%% '''
+%%
+%% Helper functions like `as_batch(Ref, fun(R) -> ... end)' and
+%% `with_iterator(Ref, fun(I) -> ... end)' add some extra
+%% convenience on top of the `rocksdb' API.
+%%
+%% Note that no automatic provision exists to manage concurrent
+%% updates via mnesia AND direct access to this API. It's advisable
+%% to use ONE primary mode of access. If replication is used,
+%% the mnesia API will support this, but direct `mrdb' updates will
+%% not be replicated.
+
 -module(mrdb).
 
 -export([ get_ref/1
