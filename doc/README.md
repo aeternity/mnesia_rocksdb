@@ -2,7 +2,7 @@
 
 # Mnesia Rocksdb - Rocksdb backend plugin for Mnesia #
 
-Copyright (c) 2017-21 Aeternity Anstalt. All Rights Reserved.
+Copyright (c) 2013-21 Klarna AB
 
 __Authors:__ Ulf Wiger ([`ulf@wiger.net`](mailto:ulf@wiger.net)).
 

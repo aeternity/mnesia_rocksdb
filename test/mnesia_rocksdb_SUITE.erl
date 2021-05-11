@@ -12,7 +12,8 @@
         , end_per_testcase/2
         ]).
 
--export([error_handling/1]).
+-export([ error_handling/1
+        , indexes/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -23,11 +24,16 @@ all() ->
     [{group, all_tests}].
 
 groups() ->
-    [{all_tests, [sequence], [error_handling]}].
+    [
+      {all_tests, [sequence], [error_handling, indexes]}
+    ].
 
 
-error_handling(_Config) ->
-    mnesia_rocksdb_error_handling:run().
+error_handling(Config) ->
+    mnesia_rocksdb_error_handling:run(Config).
+
+indexes(Config) ->
+    mnesia_rocksdb_indexes:run(Config).
 
 init_per_suite(Config) ->
     Config.

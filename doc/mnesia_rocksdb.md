@@ -10,6 +10,13 @@ rocksdb storage backend for Mnesia.
 
 __Behaviours:__ [`gen_server`](gen_server.md), [`mnesia_backend_type`](mnesia_backend_type.md).
 
+<a name="description"></a>
+
+## Description ##
+This module implements a mnesia backend callback plugin.
+It's specifically documented to try to explain the workings of
+backend plugins.
+
 <a name="types"></a>
 
 ## Data Types ##
@@ -32,6 +39,16 @@ alias() = atom()
 
 <pre><code>
 data_tab() = atom()
+</code></pre>
+
+
+
+
+### <a name="type-error">error()</a> ###
+
+
+<pre><code>
+error() = {error, any()}
 </code></pre>
 
 
@@ -119,7 +136,7 @@ table_type() = set | ordered_set | bag
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#check_definition-4">check_definition/4</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#default_alias-0">default_alias/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fixtable-3">fixtable/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#index_is_consistent-3">index_is_consistent/3</a></td><td></td></tr><tr><td valign="top"><a href="#info-3">info/3</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#init_backend-0">init_backend/0</a></td><td></td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#is_index_consistent-2">is_index_consistent/2</a></td><td></td></tr><tr><td valign="top"><a href="#ix_prefixes-3">ix_prefixes/3</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-4">load_table/4</a></td><td></td></tr><tr><td valign="top"><a href="#lookup-3">lookup/3</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-3">match_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#real_suffixes-0">real_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#receive_data-5">receive_data/5</a></td><td></td></tr><tr><td valign="top"><a href="#receive_done-4">receive_done/4</a></td><td></td></tr><tr><td valign="top"><a href="#receiver_first_message-4">receiver_first_message/4</a></td><td></td></tr><tr><td valign="top"><a href="#register-0">register/0</a></td><td></td></tr><tr><td valign="top"><a href="#register-1">register/1</a></td><td></td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#repair_continuation-2">repair_continuation/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr><tr><td valign="top"><a href="#semantics-2">semantics/2</a></td><td></td></tr><tr><td valign="top"><a href="#sender_handle_info-5">sender_handle_info/5</a></td><td></td></tr><tr><td valign="top"><a href="#sender_init-4">sender_init/4</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-1">show_table/1</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-2">show_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#slot-3">slot/3</a></td><td></td></tr><tr><td valign="top"><a href="#start_proc-6">start_proc/6</a></td><td></td></tr><tr><td valign="top"><a href="#sync_close_table-2">sync_close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr><tr><td valign="top"><a href="#tmp_suffixes-0">tmp_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr><tr><td valign="top"><a href="#validate_key-6">validate_key/6</a></td><td></td></tr><tr><td valign="top"><a href="#validate_record-6">validate_record/6</a></td><td></td></tr></table>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#check_definition-4">check_definition/4</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#default_alias-0">default_alias/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fixtable-3">fixtable/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#index_is_consistent-3">index_is_consistent/3</a></td><td></td></tr><tr><td valign="top"><a href="#info-3">info/3</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#init_backend-0">init_backend/0</a></td><td>Called by mnesia_schema in order to intialize the backend.</td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#is_index_consistent-2">is_index_consistent/2</a></td><td></td></tr><tr><td valign="top"><a href="#ix_prefixes-3">ix_prefixes/3</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-4">load_table/4</a></td><td></td></tr><tr><td valign="top"><a href="#lookup-3">lookup/3</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-3">match_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#real_suffixes-0">real_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#receive_data-5">receive_data/5</a></td><td></td></tr><tr><td valign="top"><a href="#receive_done-4">receive_done/4</a></td><td></td></tr><tr><td valign="top"><a href="#receiver_first_message-4">receiver_first_message/4</a></td><td></td></tr><tr><td valign="top"><a href="#register-0">register/0</a></td><td>Equivalent to <a href="#register-1"><tt>register(rocksdb_copies)</tt></a>.</td></tr><tr><td valign="top"><a href="#register-1">register/1</a></td><td>Convenience function for registering a mnesia_rocksdb backend plugin.</td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#repair_continuation-2">repair_continuation/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr><tr><td valign="top"><a href="#semantics-2">semantics/2</a></td><td></td></tr><tr><td valign="top"><a href="#sender_handle_info-5">sender_handle_info/5</a></td><td></td></tr><tr><td valign="top"><a href="#sender_init-4">sender_init/4</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-1">show_table/1</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-2">show_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#slot-3">slot/3</a></td><td></td></tr><tr><td valign="top"><a href="#start_proc-6">start_proc/6</a></td><td></td></tr><tr><td valign="top"><a href="#sync_close_table-2">sync_close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr><tr><td valign="top"><a href="#tmp_suffixes-0">tmp_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr><tr><td valign="top"><a href="#validate_key-6">validate_key/6</a></td><td></td></tr><tr><td valign="top"><a href="#validate_record-6">validate_record/6</a></td><td></td></tr></table>
 
 
 <a name="functions"></a>
@@ -228,6 +245,26 @@ table_type() = set | ordered_set | bag
 
 `init_backend() -> any()`
 
+Called by mnesia_schema in order to intialize the backend
+
+This is called when the backend is registered with the first alias, or ...
+
+See OTP issue #425 (16 Feb 2021). This callback is supposed to be called
+before first use of the backend, but unfortunately, it is only called at
+mnesia startup and when a backend module is registered MORE THAN ONCE.
+This means we need to handle this function being called multiple times.
+
+The bug has been fixed as of OTP 24.0-rc3
+
+If processes need to be started, this can be done using
+`mnesia_ext_sup:start_proc(Name, Mod, F, Args [, Opts])`
+where Opts are parameters for the supervised child:
+
+* `restart` (default: `transient`)
+* `shutdown` (default: `120000`)
+* `type` (default: `worker`)
+* `modules` (default: `[Mod]`)
+
 <a name="insert-3"></a>
 
 ### insert/3 ###
@@ -310,13 +347,27 @@ table_type() = set | ordered_set | bag
 
 ### register/0 ###
 
-`register() -> any()`
+<pre><code>
+register() -&gt; ok
+</code></pre>
+<br />
+
+Equivalent to [`register(rocksdb_copies)`](#register-1).
 
 <a name="register-1"></a>
 
 ### register/1 ###
 
-`register(Alias) -> any()`
+<pre><code>
+register(Alias::<a href="#type-alias">alias()</a>) -&gt; {ok, <a href="#type-alias">alias()</a>} | <a href="#type-error">error()</a>
+</code></pre>
+<br />
+
+Convenience function for registering a mnesia_rocksdb backend plugin
+
+The function used to register a plugin is `mnesia_schema:add_backend_type(Alias, Module)`
+where `Module` implements a backend_type behavior. `Alias` is an atom, and is used
+in the same way as `ram_copies` etc. The default alias is `rocksdb_copies`.
 
 <a name="remove_aliases-1"></a>
 

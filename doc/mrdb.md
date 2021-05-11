@@ -75,7 +75,7 @@ alias() = atom()
 
 
 <pre><code>
-cf_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-cf_handle">rocksdb:cf_handle()</a>
+cf_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-cf_handle">rocksdb:cf_handle()</a>
 </code></pre>
 
 
@@ -85,7 +85,7 @@ cf_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocks
 
 
 <pre><code>
-db_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-db_handle">rocksdb:db_handle()</a>
+db_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-db_handle">rocksdb:db_handle()</a>
 </code></pre>
 
 
@@ -115,7 +115,7 @@ index() = {<a href="#type-tab_name">tab_name()</a>, index, any()}
 
 
 <pre><code>
-itr_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-itr_handle">rocksdb:itr_handle()</a>
+itr_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-itr_handle">rocksdb:itr_handle()</a>
 </code></pre>
 
 
@@ -175,7 +175,7 @@ retainer() = {<a href="#type-tab_name">tab_name()</a>, retainer, any()}
 
 
 <pre><code>
-snapshot_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-snapshot_handle">rocksdb:snapshot_handle()</a>
+snapshot_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-snapshot_handle">rocksdb:snapshot_handle()</a>
 </code></pre>
 
 
@@ -205,7 +205,7 @@ table() = atom() | <a href="#type-admin_tab">admin_tab()</a> | <a href="#type-in
 
 
 <pre><code>
-tx_handle() = <a href="/Users/uwiger/git/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-transaction_handle">rocksdb:transaction_handle()</a>
+tx_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-transaction_handle">rocksdb:transaction_handle()</a>
 </code></pre>
 
 

@@ -19,10 +19,15 @@
 -module(mnesia_rocksdb_indexes).
 
 -export([run/0,
+         run/1,
          r1/0]).
 
 run() ->
+    run([]).
+
+run(Config) ->
     mnesia:stop(),
+    maybe_set_dir(Config),
     ok = mnesia_rocksdb_tlib:start_mnesia(reset),
     test(1, ram_copies, r1),
     test(1, disc_copies, d1),
@@ -41,6 +46,15 @@ run() ->
     test_index_plugin(pl2, rdb, ordered),
     test_index_plugin_mgmt(),
     ok.
+
+maybe_set_dir(Config) ->
+    case proplists:get_value(priv_dir, Config) of
+        undefined ->
+            ok;
+        PDir ->
+            Dir = filename:join(PDir, "mnesia_indexes"),
+            application:set_env(mnesia, dir, Dir)
+    end.
 
 r1() ->
     mnesia:stop(),

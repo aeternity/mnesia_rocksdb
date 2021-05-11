@@ -7,8 +7,8 @@
         ]).
 
 -import(mnesia_rocksdb_lib, [ keypos/1
-                            , decode_key/1
-                            , decode_val/1
+                            , decode_key/2
+                            , decode_val/3
                             ]).
 
 -include("mnesia_rocksdb.hrl").
@@ -63,12 +63,15 @@ fold_('$end_of_table', _, Acc) ->
 fold_({L, Cont}, Fun, Acc) ->
     fold_(select(Cont), Fun, lists:foldl(Fun, Acc, L)).
 
-i_select(I, #sel{keypat = Pfx,
-                    compiled_ms = MS,
-                    limit = Limit} = Sel, AccKeys, Acc) ->
-    StartKey = case Pfx of
-                   <<>> ->
+i_select(I, #sel{ keypat = Pfx
+                , compiled_ms = MS
+                , limit = Limit
+                , ref = #{vsn := Vsn, encoding := Enc} } = Sel, AccKeys, Acc) ->
+    StartKey = case {Pfx, Vsn, Enc}  of
+                   {<<>>, 1, {sext, _}} ->
                        <<?DATA_START>>;
+                   {_, _, {term, _}} ->
+                       <<>>;
                    _ ->
                        Pfx
                end,
@@ -149,11 +152,12 @@ map_vars([H|T], P) ->
 map_vars([], _) ->
     [].
 
-select_traverse({ok, K, V}, Limit, Pfx, MS, I, #sel{tab = Tab} = Sel,
+select_traverse({ok, K, V}, Limit, Pfx, MS, I, #sel{ref = R} = Sel,
                 AccKeys, Acc) ->
     case is_prefix(Pfx, K) of
         true ->
-            Rec = setelement(keypos(Tab), decode_val(V), decode_key(K)),
+            DecKey = decode_key(K, R),
+            Rec = decode_val(V, DecKey, R),
             case ets:match_spec_run([Rec], MS) of
                 [] ->
                     select_traverse(

@@ -1,20 +1,23 @@
 -module(mnesia_rocksdb_error_handling).
 
--export([run/0,
-         run/4]).
+-export([run/1,
+         run/5]).
 
 
-run() ->
-    setup(),
+run(Config) ->
+    setup(Config),
     %% run only one test for 'fatal', to save time.
-    [run(Type, Op, L, MaintainSz) || MaintainSz <- [false, true],
-                                     Type <- [set, bag],
-                                     Op <- [insert, update, delete],
-                                     L <- levels()]
-        ++ [run(set, insert, fatal, false)].
+    [run(Type, Op, L, MaintainSz, Config) || MaintainSz <- [false, true],
+                                             Type <- [set, bag],
+                                             Op <- [insert, update, delete],
+                                             L <- levels()]
+        ++ [run(set, insert, fatal, false, Config)].
 
-run(Type, Op, Level, MaintainSz) ->
-    setup(),
+run(Type, Op, Level, MaintainSz, Config) ->
+    maybe_trace(Level, fun() -> run_(Type, Op, Level, MaintainSz, Config) end).
+
+run_(Type, Op, Level, MaintainSz, Config) ->
+    setup(Config),
     {ok, Tab} = create_tab(Type, Level, MaintainSz),
     mnesia:dirty_write({Tab, a, 1}),                    % pre-existing data
     with_mock(Level, Op, Tab, fun() ->
@@ -22,10 +25,18 @@ run(Type, Op, Level, MaintainSz) ->
                                       expect_error(Level, Tab)
                               end).
 
+%% maybe_trace(fatal, F) ->
+%%     mnesia_rocksdb_tlib:trace(F, [{g,mrdb},{l,mnesia_rocksdb},{g,mnesia_rocksdb_lib}]);
+maybe_trace(_, F) ->
+    F().
+
 levels() ->
     [debug, verbose, warning, error].
 
-setup() ->
+setup(Config) ->
+    PrivD = proplists:get_value(priv_dir, Config, "."),
+    Dir = filename:join(PrivD, "mnesia_EH"),
+    application:set_env(mnesia, dir, Dir),
     mnesia:stop(),
     start_mnesia().
 
@@ -61,10 +72,13 @@ start_mnesia() ->
 with_mock(Level, Op, Tab, F) ->
     mnesia:subscribe(system),
     mnesia:set_debug_level(debug),
-    meck:new(mnesia_rocksdb_lib, [passthrough]),
-    meck:expect(mnesia_rocksdb_lib, put, 4, {error, some_put_error}),
-    meck:expect(mnesia_rocksdb_lib, write, 3, {error, some_write_error}),
-    meck:expect(mnesia_rocksdb_lib, delete, 3, {error,some_delete_error}),
+    meck:new(mrdb, [passthrough]),
+    meck:expect(mrdb, insert, 2, {error, some_put_error}),
+    meck:expect(mrdb, insert, 3, {error, some_put_error}),
+    meck:expect(mrdb, write, 2, {error, some_write_error}),
+    meck:expect(mrdb, write, 3, {error, some_write_error}),
+    meck:expect(mrdb, delete, 2, {error,some_delete_error}),
+    meck:expect(mrdb, delete, 3, {error,some_delete_error}),
     try {Level, Op, Tab, F()} of
         {_, _, _, ok} ->
             ok;
@@ -78,7 +92,7 @@ with_mock(Level, Op, Tab, F) ->
     after
         mnesia:set_debug_level(none),
         mnesia:unsubscribe(system),
-        meck:unload(mnesia_rocksdb_lib)
+        meck:unload(mrdb)
     end.
 
 try_write(insert, set, Tab) ->

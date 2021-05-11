@@ -14,12 +14,14 @@
         ]).
 
 -export([ keypos/1
-        , encode_key/1
-        , decode_key/1
-        , encode_val/1
-        , decode_val/1 ]).
+        , encode_key/1, encode_key/2
+        , decode_key/1, decode_key/2
+        , encode_val/1, encode_val/2
+        , decode_val/1, decode_val/3
+        ]).
 
 -include("mnesia_rocksdb.hrl").
+-include("mnesia_rocksdb_int.hrl").
 
 put(#{db := Ref, cf := CF}, K, V, Opts) ->
     rocksdb:put(Ref, CF, K, V, Opts);
@@ -81,24 +83,89 @@ tabname(Tab) when is_atom(Tab) ->
 
 -spec encode_key(any()) -> binary().
 encode_key(Key) ->
-    sext:encode(Key).
+    encode_(Key, sext).
+
+encode_(Value, sext) ->
+    sext:encode(Value);
+encode_(Value, raw) when is_binary(Value) ->
+    Value;
+encode_(Value, term) ->
+    term_to_binary(Value).
+
+
+encode_key(Key, #{encoding := {Enc,_}}) ->
+    encode_(Key, Enc);
+encode_key(Key, _) ->
+    encode_(Key, sext).
 
 -spec decode_key(binary()) -> any().
 decode_key(CodedKey) ->
-    case sext:partial_decode(CodedKey) of
+    decode_(CodedKey, sext).
+
+decode_key(CodedKey, #{encoding := {Enc, _}}) ->
+    decode_(CodedKey, Enc);
+decode_key(CodedKey, Enc) ->
+    decode_(CodedKey, Enc).
+
+decode_(Val, sext) ->
+    case sext:partial_decode(Val) of
         {full, Result, _} ->
             Result;
         _ ->
-            error(badarg, CodedKey)
-    end.
+            error(badarg, Val)
+    end;
+decode_(Val, raw) ->
+    Val;
+decode_(Val, term) ->
+    binary_to_term(Val).
 
 -spec encode_val(any()) -> binary().
 encode_val(Val) ->
-    term_to_binary(Val).
+    encode_(Val, term).
+
+encode_val(_, #{name := {_,index,_}}) ->
+    <<>>;
+encode_val(Val, #{encoding := {_, Enc0}, attr_pos := AP}) ->
+    {Type, Enc} = enc_type(Enc0),
+    case {map_size(AP), Type} of
+        {2, value} ->
+            encode_(element(3, Val), Enc);
+        {_, object} ->
+            encode_(setelement(2, Val, []), Enc)
+    end.
+
+enc_type({T, _} = E) when T==value; T==object ->
+    E;
+enc_type(E) when is_atom(E) ->
+    {object, E}.
 
 -spec decode_val(binary()) -> any().
 decode_val(CodedVal) ->
     binary_to_term(CodedVal).
+
+decode_val(<<>>, K, #{name := {_,index,_}}) ->
+    {K};
+decode_val(CodedVal, Key, Ref) ->
+    {Type, Enc} = value_encoding(Ref),
+    case Type of
+        object ->
+            setelement(2, decode_(CodedVal, Enc), Key);
+        value ->
+            make_rec(Key, decode_(CodedVal, Enc), Ref)
+    end.
+
+make_rec(Key, _Val, #{name := {_, index, {_,ordered}}}) ->
+    {Key};
+make_rec(Key, Val, #{properties := #{record_name := Tag}}) ->
+    {Tag, Key, Val}.
+
+value_encoding(#{encoding := {_, Enc}}) ->
+    enc_type(Enc);
+value_encoding(#{}) ->
+    {object, term};
+value_encoding({Type, Enc} = E) when is_atom(Type), is_atom(Enc) ->
+    E.
+
 
 keypos({_, index, _}) ->
     1;
@@ -121,46 +188,6 @@ retainername(Name) when is_list(Name) ->
     end;
 retainername(Name) ->
     lists:flatten(io_lib:write(Name)).
-
-related_resources(Tab) ->
-    TabS = atom_to_list(Tab),
-    Dir = mnesia_monitor:get_env(dir),
-    case file:list_dir(Dir) of
-        {ok, Files} ->
-            lists:flatmap(
-              fun(F) ->
-                      Full = filename:join(Dir, F),
-                      case is_index_dir(F, TabS) of
-                          false ->
-                              case is_retainer_dir(F, TabS) of
-                                  false ->
-                                      [];
-                                  {true, Name} ->
-                                      [{{Tab, retainer, Name}, Full}]
-                              end;
-                          {true, Pos} ->
-                              [{{Tab, index, {Pos,ordered}}, Full}]
-                      end
-              end, Files);
-        _ ->
-            []
-    end.
-
-is_index_dir(F, TabS) ->
-    case re:run(F, TabS ++ "-([0-9]+)-_ix.extrdb", [{capture, [1], list}]) of
-        nomatch ->
-            false;
-        {match, [P]} ->
-            {true, list_to_integer(P)}
-    end.
-
-is_retainer_dir(F, TabS) ->
-    case re:run(F, TabS ++ "-(.+)-_RET", [{capture, [1], list}]) of
-        nomatch ->
-            false;
-        {match, [Name]} ->
-            {true, Name}
-    end.
 
 open_rocksdb(MPd, RdbOpts, CFs) ->
     open_rocksdb(MPd, rocksdb_open_opts_(RdbOpts), CFs, get_retries()).

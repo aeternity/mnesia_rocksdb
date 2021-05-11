@@ -17,6 +17,12 @@
 %%----------------------------------------------------------------
 
 %% @doc rocksdb storage backend for Mnesia.
+%%
+%% This module implements a mnesia backend callback plugin.
+%% It's specifically documented to try to explain the workings of
+%% backend plugins.
+%%
+%% @end
 
 %% Initialization: register() or register(Alias)
 %% Usage: mnesia:create_table(Tab, [{rocksdb_copies, Nodes}, ...]).
@@ -123,13 +129,16 @@
 -import(mrdb, [ with_iterator/2
               ]).
 
--import(mnesia_rocksdb_lib, [ encode_key/1
-                            , encode_val/1
-                            , decode_key/1
-                            , decode_val/1
+-import(mnesia_rocksdb_admin, [ get_ref/1 ]).
+
+-import(mnesia_rocksdb_lib, [ encode_key/2
+                            , encode_val/3
+                            , decode_key/2
+                            , decode_val/3
                             ]).
 
 -include("mnesia_rocksdb.hrl").
+-include("mnesia_rocksdb_int.hrl").
 
 %% ----------------------------------------------------------------------------
 %% DEFINES
@@ -166,6 +175,8 @@
 -type table_type() :: set | ordered_set | bag.
 -type table() :: data_tab() | index_tab() | retainer_tab().
 
+-type error() :: {error, any()}.
+
 -export_type([alias/0,
               table/0,
               table_type/0]).
@@ -174,9 +185,18 @@
 %% CONVENIENCE API
 %% ----------------------------------------------------------------------------
 
+-spec register() -> ok.
+%% @equiv register(rocksdb_copies)
 register() ->
     register(default_alias()).
 
+%% @doc Convenience function for registering a mnesia_rocksdb backend plugin
+%%
+%% The function used to register a plugin is `mnesia_schema:add_backend_type(Alias, Module)'
+%% where `Module' implements a backend_type behavior. `Alias' is an atom, and is used
+%% in the same way as `ram_copies' etc. The default alias is `rocksdb_copies'.
+%% @end
+-spec register(alias()) -> {ok, alias()} | error().
 register(Alias) ->
     Module = ?MODULE,
     case mnesia:add_backend_type(Alias, Module) of
@@ -200,28 +220,30 @@ show_table(Tab) ->
     show_table(Tab, 100).
 
 show_table(Tab, Limit) ->
-    mrdb:with_iterator(Tab, fun(I) ->
-                                    i_show_table(I, first, Limit)
+    Ref = mrdb:get_ref(Tab),
+    mrdb:with_iterator(Ref, fun(I) ->
+                                    i_show_table(I, first, Limit, Ref)
                             end).
 %% PRIVATE
 
-i_show_table(_, _, 0) ->
+i_show_table(_, _, 0, _) ->
     {error, skipped_some};
-i_show_table(I, Move, Limit) ->
+i_show_table(I, Move, Limit, Ref) ->
     case rocksdb:iterator_move(I, Move) of
         {ok, EncKey, EncVal} ->
             {Type,Val} =
                 case EncKey of
                     << ?INFO_TAG, K/binary >> ->
-                        {info,{decode_key(K),decode_val(EncVal)}};
+                        K1 = decode_key(K, Ref),
+                        V = decode_val(EncVal, K1, Ref),
+                        {info,V};
                     _ ->
-                        K = decode_key(EncKey),
-                        V = decode_val(EncVal),
-                        V2 = setelement(2,V,K),
-                        {data,V2}
+                        K = decode_key(EncKey, Ref),
+                        V = decode_val(EncVal, K, Ref),
+                        {data,V}
                 end,
             io:fwrite("~p: ~p~n", [Type, Val]),
-            i_show_table(I, next, Limit-1);
+            i_show_table(I, next, Limit-1, Ref);
         _ ->
             ok
     end.
@@ -233,10 +255,26 @@ i_show_table(I, Move, Limit) ->
 
 %% backend management
 
+%% @doc Called by mnesia_schema in order to intialize the backend
+%%
+%% This is called when the backend is registered with the first alias, or ...
+%%
 %% See OTP issue #425 (16 Feb 2021). This callback is supposed to be called
 %% before first use of the backend, but unfortunately, it is only called at
 %% mnesia startup and when a backend module is registered MORE THAN ONCE.
 %% This means we need to handle this function being called multiple times.
+%%
+%% The bug has been fixed as of OTP 24.0-rc3
+%%
+%% If processes need to be started, this can be done using
+%% `mnesia_ext_sup:start_proc(Name, Mod, F, Args [, Opts])'
+%% where Opts are parameters for the supervised child:
+%%
+%% * `restart' (default: `transient')
+%% * `shutdown' (default: `120000')
+%% * `type' (default: `worker')
+%% * `modules' (default: `[Mod]')
+%% @end
 init_backend() ->
     mnesia_rocksdb_admin:ensure_started().
 
@@ -273,9 +311,9 @@ is_index_consistent(Alias, {Tab, index, PosInfo}) ->
         _ -> false
     end.
 
-index_is_consistent(Alias, {Tab, index, PosInfo}, Bool)
+index_is_consistent(_Alias, {Tab, index, PosInfo}, Bool)
   when is_boolean(Bool) ->
-    write_info(Alias, Tab, {index_consistent, PosInfo}, Bool).
+    mrdb:write_info(Tab, {index_consistent, PosInfo}, Bool).
 
 
 %% PRIVATE FUN
@@ -426,12 +464,8 @@ delete_table(Alias, Tab) ->
             call(Alias, Tab, delete_table)
     end.
 
-
 info(_Alias, Tab, Item) ->
     mrdb:read_info(Tab, Item).
-
-write_info(Alias, Tab, Key, Value) ->
-    call(Alias, Tab, {write_info, Key, Value}).
 
 %% table synch calls
 
@@ -505,46 +539,40 @@ chunk_fun() ->
 
 %% low-level accessor callbacks.
 
-delete(Alias, Tab, Key) ->
-    opt_call(Alias, Tab, {delete, Key}),
-    ok.
-
-first(Alias, Tab) ->
-    {Ref, _Type} = get_ref(Alias, Tab),
-    with_iterator(Ref, fun i_first/1).
-
-%% PRIVATE ITERATOR
-i_first(I) ->
-    case rocksdb:iterator_move(I, <<?DATA_START>>) of
-        {ok, First, _} ->
-            decode_key(First);
-        _ ->
-            '$end_of_table'
+%% Whereas the return type, legacy | Ref, seems odd, it's a shortcut for
+%% performance reasons.
+access_type(Tab) ->
+    case get_ref(Tab) of
+        #{semantics := bag, vsn := 1} -> legacy;
+        R ->
+            R#{mode => mnesia}
     end.
+
+delete(Alias, Tab, Key) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {delete, Key});
+        R -> db_delete(R, Key, [], R)
+    end.
+    %% call_if_legacy(Alias, Tab, {delete, Key}, fun() -> mrdb
+    %% mrdb:delete(Tab, Key).
+    %% %% opt_call(Alias, Tab, {delete, Key}),
+    %% %% ok.
+
+first(_Alias, Tab) ->
+    mrdb:first(Tab).
 
 %% Not relevant for an ordered_set
 fixtable(_Alias, _Tab, _Bool) ->
     true.
 
-%% To save storage space, we avoid storing the key twice. We replace the key
-%% in the record with []. It has to be put back in lookup/3.
 insert(Alias, Tab, Obj) ->
-    call(Alias, Tab, {insert, Obj}).
-
-last(Alias, Tab) ->
-    {Ref, _Type} = get_ref(Alias, Tab),
-    with_iterator(Ref, fun i_last/1).
-
-%% PRIVATE ITERATOR
-i_last(I) ->
-    case rocksdb:iterator_move(I, last) of
-        {ok, << ?INFO_TAG, _/binary >>, _} ->
-            '$end_of_table';
-        {ok, Last, _} ->
-            decode_key(Last);
-        _ ->
-            '$end_of_table'
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {insert, Obj});
+        R -> db_insert(R, Obj, [], R)
     end.
+
+last(_Alias, Tab) ->
+    mrdb:last(Tab).
 
 %% Since we replace the key with [] in the record, we have to put it back
 %% into the found record.
@@ -552,58 +580,16 @@ lookup(_Alias, Tab, Key) ->
     mrdb:read(Tab, Key).
 
 match_delete(Alias, Tab, Pat) ->
-    call(Alias, Tab, {match_delete, Pat}).
-
-next(Alias, Tab, Key) ->
-    {Ref, _Type} = get_ref(Alias, Tab),
-    EncKey = encode_key(Key),
-    with_iterator(Ref, fun(I) -> i_next(I, EncKey, Key) end).
-
-%% PRIVATE ITERATOR
-i_next(I, EncKey, Key) ->
-    case rocksdb:iterator_move(I, EncKey) of
-        {ok, EncKey, _} ->
-            i_next_loop(rocksdb:iterator_move(I, next), I, Key);
-        Other ->
-            i_next_loop(Other, I, Key)
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {match_delete, Pat});
+        R -> mrdb:match_delete(R, Pat)
     end.
 
-i_next_loop({ok, EncKey, _}, I, Key) ->
-    case decode_key(EncKey) of
-        Key ->
-            i_next_loop(rocksdb:iterator_move(I, next), I, Key);
-        NextKey ->
-            NextKey
-    end;
-i_next_loop(_, _I, _Key) ->
-    '$end_of_table'.
+next(_Alias, Tab, Key) ->
+    mrdb:next(Tab, Key).
 
-prev(Alias, Tab, Key0) ->
-    {Ref, _Type} = call(Alias, Tab, get_ref),
-    Key = encode_key(Key0),
-    with_iterator(Ref, fun(I) -> i_prev(I, Key) end).
-
-%% PRIVATE ITERATOR
-i_prev(I, Key) ->
-    case rocksdb:iterator_move(I, Key) of
-        {ok, _, _} ->
-            i_move_to_prev(I, Key);
-        {error, invalid_iterator} ->
-            i_last(I)
-    end.
-
-%% PRIVATE ITERATOR
-i_move_to_prev(I, Key) ->
-    case rocksdb:iterator_move(I, prev) of
-        {ok, << ?INFO_TAG, _/binary >>, _} ->
-            '$end_of_table';
-        {ok, Prev, _} when Prev < Key ->
-            decode_key(Prev);
-        {ok, _, _} ->
-            i_move_to_prev(I, Key);
-        _ ->
-            '$end_of_table'
-    end.
+prev(_Alias, Tab, Key) ->
+    mrdb:prev(Tab, Key).
 
 repair_continuation(Cont, _Ms) ->
     Cont.
@@ -617,12 +603,16 @@ select(_Alias, Tab, Ms) ->
 select(_Alias, Tab, Ms, Limit) when Limit==infinity; is_integer(Limit) ->
     mrdb:select(Tab, Ms, Limit).
 
-slot(Alias, Tab, Pos) when is_integer(Pos), Pos >= 0 ->
-    {Ref, Type} = get_ref(Alias, Tab),
-    First = fun(I) -> rocksdb:iterator_move(I, <<?DATA_START>>) end,
-    F = case Type of
-            bag -> fun(I) -> slot_iter_set(First(I), I, 0, Pos) end;
-            _   -> fun(I) -> slot_iter_set(First(I), I, 0, Pos) end
+slot(_Alias, Tab, Pos) when is_integer(Pos), Pos >= 0 ->
+    #{semantics := Sem} = Ref = get_ref(Tab),
+    Start = case Ref of
+                #{type := standalone, vsn := 1} -> <<?DATA_START>>;
+                _ -> first
+            end,
+    First = fun(I) -> rocksdb:iterator_move(I, Start) end,
+    F = case Sem of
+            bag -> fun(I) -> slot_iter_set(First(I), I, 0, Pos, Ref) end;
+            _   -> fun(I) -> slot_iter_set(First(I), I, 0, Pos, Ref) end
         end,
     with_iterator(Ref, F);
 slot(_, _, _) ->
@@ -631,29 +621,33 @@ slot(_, _, _) ->
 %% Exactly which objects Mod:slot/2 is supposed to return is not defined,
 %% so let's just use the same version for both set and bag. No one should
 %% use this function anyway, as it is ridiculously inefficient.
-slot_iter_set({ok, K, V}, _I, P, P) ->
-    [setelement(2, decode_val(V), decode_key(K))];
-slot_iter_set({ok, _, _}, I, P1, P) when P1 < P ->
-    slot_iter_set(rocksdb:iterator_move(I, next), I, P1+1, P);
-slot_iter_set(Res, _, _, _) when element(1, Res) =/= ok ->
+slot_iter_set({ok, K, V}, _I, P, P, R) ->
+    Kd = decode_key(K, R),
+    [setelement(2, decode_val(V, Kd, R), Kd)];
+slot_iter_set({ok, _, _}, I, P1, P, R) when P1 < P ->
+    slot_iter_set(rocksdb:iterator_move(I, next), I, P1+1, P, R);
+slot_iter_set(Res, _, _, _, _) when element(1, Res) =/= ok ->
     '$end_of_table'.
 
 update_counter(Alias, Tab, C, Val) when is_integer(Val) ->
-    call(Alias, Tab, {update_counter, C, Val}).
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {update_counter, C, Val});
+        R -> mrdb:update_counter(R, C, Val)
+    end.
 
 %% server-side part
 do_update_counter(C, Val, Ref, St) ->
-    Enc = encode_key(C),
+    Enc = encode_key(C, Ref),
     case rocksdb:get(Ref, Enc, [{fill_cache, true}]) of
         {ok, EncVal} ->
-            case decode_val(EncVal) of
+            case decode_val(EncVal, C, Ref) of
                 {_, _, Old} = Rec when is_integer(Old) ->
                     Res = Old+Val,
                     return_catch(
                       fun() ->
                               Val1 = setelement(3, Rec, Res),
                               write_result(
-                                mrdb:rdb_put(Ref, Enc, encode_val(Val1), []),
+                                mrdb:rdb_put(Ref, Enc, encode_val(Val1, C, Ref), []),
                                 insert, [Ref, C, Val1, []], St)
                       end);
                 _ ->
@@ -764,8 +758,6 @@ handle_call({load_table, _LoadReason, _Opts}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
     ok = mnesia_rocksdb_admin:load_table(Alias, Tab),
     {reply, ok, St};
-handle_call(get_ref, _From, #st{ref = Ref, type = Type} = St) ->
-    {reply, {Ref, Type}, St};
 handle_call({write_info, Key, Value}, _From, #st{ref = Ref} = St) ->
     mrdb:write_info(Ref, Key, Value),
     {reply, ok, St};
@@ -867,7 +859,8 @@ db_delete(Ref, K, Opts, St) ->
 
 write_result(ok, _, _, _) ->
     ok;
-write_result(Res, Op, Args, #st{tab = Tab, on_write_error = Rpt, on_write_error_store = OWEStore}) ->
+write_result(Res, Op, Args, St) ->
+    {Tab, Rpt, OWEStore} = error_info(St),
     RptOp = rpt_op(Rpt),
     maybe_store_error(OWEStore, Res, Tab, Op, Args, erlang:system_time(millisecond)),
     mnesia_lib:RptOp("FAILED rocksdb:~p(" ++ rpt_fmt(Args) ++ ") -> ~p~n",
@@ -878,9 +871,23 @@ write_result(Res, Op, Args, #st{tab = Tab, on_write_error = Rpt, on_write_error_
             ok
     end.
 
+error_info(#st{tab = Tab, on_write_error = Rpt, on_write_error_store = OWEStore}) ->
+    {Tab, Rpt, OWEStore};
+error_info(#{name := Tab} = R) ->
+    RdbOpts = rdb_opts(R),
+    OWEStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
+    Rpt = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
+    {Tab, Rpt, OWEStore}.
+
+rdb_opts(#{properties := #{user_properties := #{rocksdb_opts := RdbOpts}}}) ->
+    RdbOpts;
+rdb_opts(_) ->
+    [].
+
 maybe_store_error(undefined, _, _, _, _, _) ->
     ok;
-maybe_store_error(Table, Err, IntTable, insert, [_, K, _, _], Time) ->
+maybe_store_error(Table, Err, IntTable, insert, [_, Obj, _], Time) ->
+    K = element(2, Obj),
     insert_error(Table, IntTable, K, Err, Time);
 maybe_store_error(Table, Err, IntTable, delete, [_, K, _], Time) ->
     insert_error(Table, IntTable, K, Err, Time);
@@ -892,9 +899,8 @@ maybe_store_error(Table, Err, IntTable, write, [_, List, _], Time) ->
                       insert_error(Table, IntTable, K, Err, Time)
               end, List).
 
-insert_error(Table, {Type, _, _}, K, Err, Time) ->
-    {_, K1} = decode_key(K),
-    ets:insert(Table, {{Type, K1}, Err, Time});
+insert_error(Table, {Type, _, _}, {_, K}, Err, Time) ->
+    ets:insert(Table, {{Type, K}, Err, Time});
 insert_error(Table, Type, K, Err, Time) when is_atom(Type) ->
     ets:insert(Table, {{Type, K}, Err, Time}).
 
@@ -920,8 +926,3 @@ valid_mnesia_op(Op) ->
 %% ----------------------------------------------------------------------------
 %% COMMON PRIVATE
 %% ----------------------------------------------------------------------------
-
--spec get_ref(alias(), table()) -> {rocksdb:db_handle(), table_type()}.
-get_ref(Alias, Tab) ->
-    call(Alias, Tab, get_ref).
-

@@ -1,5 +1,5 @@
 @author Ulf Wiger <ulf@wiger.net>
-@copyright 2017-21 Aeternity Anstalt. All Rights Reserved.
+@copyright 2013-21 Klarna AB
 @title Mnesia Rocksdb - Rocksdb backend plugin for Mnesia
 
 @doc

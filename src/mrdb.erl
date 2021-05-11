@@ -46,6 +46,7 @@
         , delete/2       , delete/3
         , match_delete/2
         , write/2        , write/3
+        , update_counter/3, update_counter/4
         , as_batch/2     , as_batch/3
         , first/1        , first/2
         , next/2         , next/3
@@ -68,9 +69,10 @@
 
 -import(mnesia_rocksdb_lib, [ keypos/1
                             , encode_key/1
-                            , decode_key/1
-                            , encode_val/1
-                            , decode_val/1 ]).
+                            , encode_key/2
+                            , decode_key/2
+                            , encode_val/2
+                            , decode_val/3 ]).
 
 -include("mnesia_rocksdb.hrl").
 
@@ -176,10 +178,11 @@ with_iterator(Tab, Fun) ->
 
 -spec with_iterator(ref_or_tab(), fun( (itr_handle()) -> Res ), read_options()) -> Res.
 with_iterator(Tab, Fun, Opts) when is_function(Fun, 1) ->
-    with_iterator_(ensure_ref(Tab), Fun, Opts).
+    R = ensure_ref(Tab),
+    with_iterator_(R, Fun, read_opts(R, Opts)).
 
-with_iterator_(Ref, Fun, Opts) ->
-    {ok, I} = rdb_iterator(Ref, Opts),
+with_iterator_(Ref, Fun, ROpts) ->
+    {ok, I} = rdb_iterator_(Ref, ROpts),
     try Fun(I)
     after
         rocksdb:iterator_close(I)
@@ -194,8 +197,8 @@ insert(Tab, Obj, Opts) ->
     #{name := Name} = Ref = ensure_ref(Tab),
     Pos = keypos(Name),
     Key = element(Pos, Obj),
-    EncVal = encode_val(setelement(Pos, Obj, [])),
-    insert_(Ref, Key, encode_key(Key), EncVal, Obj, Opts).
+    EncVal = encode_val(Obj, Ref),
+    insert_(Ref, Key, encode_key(Key, Ref), EncVal, Obj, Opts).
 
 insert_(#{semantics := bag} = Ref, Key, EncKey, EncVal, Obj, Opts) ->
     batch_if_index(Ref, insert, bag, fun insert_bag/4, Key, EncKey, EncVal, Obj, Opts);
@@ -208,7 +211,9 @@ insert_set(Ref, EncKey, EncVal, Opts) ->
     rdb_put(Ref, EncKey, EncVal, Opts).
 
 insert_bag(Ref, EncKey, EncVal, Opts) ->
-    insert_bag_(Ref, EncKey, EncVal, Opts).
+    %% case Ref of
+    %%     #{vsn := 1} ->
+    insert_bag_v1(Ref, EncKey, EncVal, Opts).
 
 batch_if_index(#{mode := mnesia} = Ref, _, _, F, _Key, EncKey, EncVal, _Obj, Opts) ->
     F(Ref, EncKey, EncVal, Opts);
@@ -223,29 +228,30 @@ batch_if_index(Ref, _, _, F, _, EncKey, EncVal, _, Opts) ->
     F(Ref, EncKey, EncVal, Opts).
 
 update_index(Ixs, insert, SoB, Name, R, Key, Obj, Opts) ->
-    update_index_i(Ixs, SoB, Name, R, Key, encode_val({[]}), Obj, Opts);
+    update_index_i(Ixs, SoB, Name, R, Key, Obj, Opts);
 update_index(Ixs, delete, _SoB, Name, R, Key, _Obj, Opts) ->
     update_index_d(Ixs, Name, R, Key, Opts).
 
 update_index_i([{_Pos,ordered} = I|Ixs],
-               SoB, Name, R, Key, EncVal, Obj, Opts) ->
+               SoB, Name, R, Key, Obj, Opts) ->
     Tab = {Name, index, I},
     #{ix_vals_f := IxValsF} = IRef = ensure_ref(Tab, R),
+    EncVal = <<>>,
     NewVals = IxValsF(Obj),
     case SoB of
         set ->
             OldObjs = read(R, Key, Opts),
             {Del, Put} = ix_vals_to_delete(OldObjs, IxValsF, NewVals),
-            [rdb_delete(IRef, encode_key({IxVal, Key}), Opts)
+            [rdb_delete(IRef, encode_key({IxVal, Key}, IRef), Opts)
              || IxVal <- Del],
-            [rdb_put(IRef, encode_key({IxVal, Key}), EncVal, Opts)
+            [rdb_put(IRef, encode_key({IxVal, Key}, IRef), EncVal, Opts)
              || IxVal <- Put];
         bag ->
-            [rdb_put(IRef, encode_key({IxVal, Key}), EncVal, Opts)
+            [rdb_put(IRef, encode_key({IxVal, Key}, IRef), EncVal, Opts)
              || IxVal <- NewVals]
     end,
-    update_index_i(Ixs, SoB, Name, R, Key, EncVal, Obj, Opts);
-update_index_i([], _, _, _, _, _, _, _) ->
+    update_index_i(Ixs, SoB, Name, R, Key, Obj, Opts);
+update_index_i([], _, _, _, _, _, _) ->
     ok.
 
 update_index_d([{_Pos,ordered} = I|Ixs], Name, R, Key, Opts) ->
@@ -254,7 +260,7 @@ update_index_d([{_Pos,ordered} = I|Ixs], Name, R, Key, Opts) ->
     Old = read(R, Key, Opts),
     lists:foreach(
       fun(Obj) ->
-              [rdb_delete(IRef, encode_key({IxVal, Key}), Opts)
+              [rdb_delete(IRef, encode_key({IxVal, Key}, IRef), Opts)
                || IxVal <- IxValsF(Obj)]
       end, Old),
     update_index_d(Ixs, Name, R, Key, Opts);
@@ -288,35 +294,34 @@ read(Tab, Key, Opts) ->
 
 read_(#{semantics := bag} = Ref, Key, Opts) ->
     read_bag_(Ref, Key, Opts);
-read_(#{name := Name} = Ref, Key, Opts) ->
-    Pos = keypos(Name),
-    case rdb_get(Ref, encode_key(Key), read_opts(Ref, Opts)) of
+read_(Ref, Key, Opts) ->
+    case rdb_get(Ref, encode_key(Key, Ref), read_opts(Ref, Opts)) of
         not_found ->
             [];
         {ok, Bin} ->
-            Obj = decode_val(Bin),
-            [setelement(Pos, Obj, Key)];
+            Obj = decode_val(Bin, Key, Ref),
+            [Obj];
         {error, _} = Error ->
             mnesia:abort(Error)
     end.
 
 read_bag_(#{name := Name} = Ref, Key, Opts) ->
     Pos = keypos(Name),
-    Enc = encode_key(Key),
+    Enc = encode_key(Key, Ref),
     Sz = byte_size(Enc),
-    with_iterator(
+    with_iterator_(
       Ref, fun(I) ->
-                   read_bag_i_(Sz, Enc, i_move(I, Enc), Key, I, Pos)
+                   read_bag_i_(Sz, Enc, i_move(I, Enc), Key, I, Pos, Ref)
            end, read_opts(Ref, Opts)).
 
-read_bag_i_(Sz, Enc, {ok, Enc, _}, K, I, KP) ->
+read_bag_i_(Sz, Enc, {ok, Enc, _}, K, I, KP, Ref) ->
     %% When exactly can this happen, and why skip? (this is from the old code)
-    read_bag_i_(Sz, Enc, i_move(I, next), K, I, KP);
-read_bag_i_(Sz, Enc, Res, K, I, KP) ->
+    read_bag_i_(Sz, Enc, i_move(I, next), K, I, KP, Ref);
+read_bag_i_(Sz, Enc, Res, K, I, KP, Ref) ->
     case Res of
         {ok, <<Enc:Sz/binary, _:?BAG_CNT>>, V} ->
-            [setelement(KP, decode_val(V), K) |
-             read_bag_i_(Sz, Enc, i_move(I, next), K, I, KP)];
+            [setelement(KP, decode_val(V, K, Ref), K) |
+             read_bag_i_(Sz, Enc, i_move(I, next), K, I, KP, Ref)];
         _ ->
             []
     end.
@@ -399,13 +404,29 @@ write_as_batch(Ref, L) ->
               rdb_delete(Ref, K, [])
       end, L).
 
+update_counter(Tab, C, Val) ->
+    update_counter(Tab, C, Val, []).
+
+update_counter(Tab, C, Val, Opts) ->
+    Ref = ensure_ref(Tab),
+    case Ref of
+        #{encoding := {_, {value, term}}} ->
+            update_counter_(Ref, encode_key(C, Ref), Val, Opts);
+        _ ->
+            abort(badarg)
+    end.
+
+update_counter_(Ref, EncKey, Val, Opts) ->
+    rdb_merge(Ref, EncKey, {int_add, Val}, Opts).
+
 -spec delete(ref_or_tab(), key()) -> ok.
 delete(Tab, Key) ->
     delete(Tab, Key, []).
 
 -spec delete(ref_or_tab(), key(), write_options()) -> ok.
 delete(Tab, Key, Opts) ->
-    delete_(ensure_ref(Tab), Key, encode_key(Key), Opts).
+    Ref = ensure_ref(Tab),
+    delete_(Ref, Key, encode_key(Key, Ref), Opts).
 
 delete_(#{semantics := bag} = Ref, Key, EncKey, Opts) ->
     batch_if_index(Ref, delete, bag, fun delete_bag/4, Key, EncKey, [], [], Opts);
@@ -418,7 +439,8 @@ first(Tab) ->
 
 -spec first(ref_or_tab(), read_options()) -> key() | '$end_of_table'.
 first(Tab, Opts) ->
-    with_iterator(ensure_ref(Tab), fun i_first/1, Opts).
+    Ref = ensure_ref(Tab),
+    with_iterator(Ref, fun(I) -> i_first(I, Ref) end, Opts).
 
 -spec last(ref_or_tab()) -> key() | '$end_of_table'.
 last(Tab) ->
@@ -426,7 +448,8 @@ last(Tab) ->
 
 -spec last(ref_or_tab(), read_options()) -> key() | '$end_of_table'.
 last(Tab, Opts) ->
-    with_iterator(ensure_ref(Tab), fun i_last/1, Opts).
+    Ref = ensure_ref(Tab),
+    with_iterator(Ref, fun(I) -> i_last(I, Ref) end, Opts).
 
 -spec next(ref_or_tab(), key()) -> key() | '$end_of_table'.
 next(Tab, K) ->
@@ -434,8 +457,9 @@ next(Tab, K) ->
 
 -spec next(ref_or_tab(), key(), read_options()) -> key() | '$end_of_table'.
 next(Tab, K, Opts) ->
-    EncKey = encode_key(K),
-    with_iterator(ensure_ref(Tab), fun(I) -> i_next(I, EncKey) end, Opts).
+    Ref = ensure_ref(Tab),
+    EncKey = encode_key(K, Ref),
+    with_iterator(Ref, fun(I) -> i_next(I, EncKey, Ref) end, Opts).
 
 -spec prev(ref_or_tab(), key()) -> key() | '$end_of_table'.
 prev(Tab, K) ->
@@ -443,8 +467,9 @@ prev(Tab, K) ->
 
 -spec prev(ref_or_tab(), key(), read_options()) -> key() | '$end_of_table'.
 prev(Tab, K, Opts) ->
-    EncKey = encode_key(K),
-    with_iterator(ensure_ref(Tab), fun(I) -> i_prev(I, EncKey) end, Opts).
+    Ref = ensure_ref(Tab),
+    EncKey = encode_key(K, Ref),
+    with_iterator(Ref, fun(I) -> i_prev(I, EncKey, Ref) end, Opts).
 
 select(Tab, Pat) ->
     select(Tab, Pat, infinity).
@@ -460,11 +485,12 @@ match_delete(Tab, Pat) ->
     Ref = ensure_ref(Tab),
     MatchSpec = [{Pat, [], [true]}],
     as_batch(Ref, fun(R) ->
+                          %% call select() with AccKeys=true, returning [{Key, _}]
                           match_delete_(mrdb_select:select(Ref, MatchSpec, true, 30), R)
                   end).
 
 match_delete_({L, Cont}, Ref) ->
-    [rdb_delete(Ref, K, []) || K <- L],
+    [rdb_delete(Ref, K, []) || {K,_} <- L],
     match_delete_(select(Cont), Ref);
 match_delete_('$end_of_table', _) ->
     ok.
@@ -487,16 +513,20 @@ valid_limit(L) ->
     end.
 
 write_info(Tab, K, V) ->
-    case ensure_ref(Tab) of
-        #{type := standalone} = TRef ->
-            write_info_standalone(TRef, K, V);
-        #{alias := Alias} ->
-            write_info_(ensure_ref({admin, Alias}), Tab, K, V)
-    end.
+    R = ensure_ref(Tab),
+    Alias = case R of
+                #{type := standalone, vsn := 1, alias := A} = TRef ->
+                    %% Also write on legacy info format
+                    write_info_standalone(TRef, K, V),
+                    A;
+                #{alias := A} ->
+                    A
+            end,
+    write_info_(ensure_ref({admin, Alias}), Tab, K, V).
 
 write_info_(#{} = R, Tab, K, V) ->
-    EncK = encode_key({info,Tab,K}),
-    EncV = encode_val(V),
+    EncK = encode_key({info,Tab,K}, sext),
+    EncV = term_to_binary(V),
     rdb_put(R, EncK, EncV, write_opts(R, [])).
 
 read_info(Tab, K) ->
@@ -505,11 +535,12 @@ read_info(Tab, K) ->
 read_info(Tab, K, Default) when K==size; K==memory ->
     read_direct_info_(ensure_ref(Tab), K, Default);
 read_info(Tab, K, Default) ->
-    case ensure_ref(Tab) of
-        #{type := standalone} = TRef ->
+    #{alias := Alias} = R = ensure_ref(Tab),
+    case R of
+        #{type := standalone, vsn := 1} = TRef ->
             read_info_standalone(TRef, K, Default);
         #{alias := Alias} ->
-            read_info_(ensure_ref({admin, Alias}), Tab, K, Default)
+            mnesia_rocksdb_admin:read_info(Alias, Tab, K, Default)
     end.
 
 read_direct_info_(_, memory, Def) ->
@@ -523,8 +554,13 @@ read_direct_info_(#{db_ref := _DbRef, cf_handle := _CfH}, size, Def) ->
     %%         Count
     %% end.
 
-read_info_(#{} = R, Tab, K, Default) ->
-    EncK = encode_key({info, Tab, K}),
+write_info_standalone(#{} = R, K, V) ->
+    EncK = <<?INFO_TAG, (encode_key(K, sext))/binary>>,
+    EncV = term_to_binary(V),
+    rdb_put(R, EncK, EncV, write_opts(R, [])).
+
+read_info_standalone(#{} = R, K, Default) ->
+    EncK = <<?INFO_TAG, (encode_key(K, sext))/binary>>,
     get_info_res(rdb_get(R, EncK, read_opts(R, [])), Default).
 
 get_info_res(Res, Default) ->
@@ -532,34 +568,29 @@ get_info_res(Res, Default) ->
         not_found ->
             Default;
         {ok, Bin} ->
-            decode_val(Bin);
+            %% no fancy tricks when encoding/decoding info values
+            binary_to_term(Bin);
         {error, E} ->
             error(E)
     end.
 
-write_info_standalone(#{} = R, K, V) ->
-    EncK = <<?INFO_TAG, (encode_key(K))/binary>>,
-    EncV = encode_val(V),
-    rdb_put(R, EncK, EncV, write_opts(R, [])).
+%% insert_bag_v2(Ref, K, V, Opts) ->
+%%     rdb_merge(Ref, K, {list_append, [V]}
 
-read_info_standalone(#{} = R, K, Default) ->
-    EncK = <<?INFO_TAG, (encode_key(K))/binary>>,
-    get_info_res(rdb_get(R, EncK, read_opts(R, [])), Default).
-
-insert_bag_(Ref, K, V, Opts) ->
+insert_bag_v1(Ref, K, V, Opts) ->
     KSz = byte_size(K),
     with_iterator(
       Ref, fun(I) ->
-                   do_insert_bag_(KSz, K, i_move(I, K), I, V, 0, Ref, Opts)
+                   do_insert_bag_v1(KSz, K, i_move(I, K), I, V, 0, Ref, Opts)
            end).
 
-do_insert_bag_(Sz, K, Res, I, V, Prev, Ref, Opts) ->
+do_insert_bag_v1(Sz, K, Res, I, V, Prev, Ref, Opts) ->
     case Res of
         {ok, <<K:Sz/binary, _:?BAG_CNT>>, V} ->
             %% object exists
             ok;
         {ok, <<K:Sz/binary, N:?BAG_CNT>>, _} ->
-            do_insert_bag_(Sz, K, i_move(I, next), I, V, N, Ref, Opts);
+            do_insert_bag_v1(Sz, K, i_move(I, next), I, V, N, Ref, Opts);
         _ ->
             Key = <<K/binary, (Prev+1):?BAG_CNT>>,
             rdb_put(Ref, Key, V, Opts)
@@ -591,30 +622,47 @@ do_delete_bag_(Sz, K, Res, Ref, I) ->
             []
     end.
 
-rdb_put(#{batch := Batch, cf_handle := CfH}, K, V, _Opts) ->
+rdb_put(R, K, V, Opts) ->
+    rdb_put_(R, K, V, write_opts(R, Opts)).
+
+rdb_put_(#{batch := Batch, cf_handle := CfH}, K, V, _Opts) ->
     rocksdb:batch_put(Batch, CfH, K, V);
-rdb_put(#{tx_handle := TxH, cf_handle := CfH}, K, V, _Opts) ->
+rdb_put_(#{tx_handle := TxH, cf_handle := CfH}, K, V, _Opts) ->
     rocksdb:transaction_put(TxH, CfH, K, V);
-rdb_put(#{db_ref := DbRef, cf_handle := CfH} = R, K, V, Opts) ->
-    rocksdb:put(DbRef, CfH, K, V, write_opts(R, Opts)).
+rdb_put_(#{db_ref := DbRef, cf_handle := CfH}, K, V, WOpts) ->
+    rocksdb:put(DbRef, CfH, K, V, WOpts).
 
-rdb_get(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
+rdb_get(R, K, Opts) ->
+    rdb_get_(R, K, read_opts(R, Opts)).
+
+rdb_get_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
     rocksdb:transaction_get(TxH, CfH, K);
-rdb_get(#{db_ref := DbRef, cf_handle := CfH} = R, K, Opts) ->
-    rocksdb:get(DbRef, CfH, K, read_opts(R, Opts)).
+rdb_get_(#{db_ref := DbRef, cf_handle := CfH}, K, ROpts) ->
+    rocksdb:get(DbRef, CfH, K, ROpts).
 
+rdb_delete(R, K, Opts) ->
+    rdb_delete_(R, K, write_opts(R, Opts)).
 
-rdb_delete(#{batch := Batch, cf_handle := CfH}, K, _Opts) ->
+rdb_delete_(#{batch := Batch, cf_handle := CfH}, K, _Opts) ->
     rocksdb:batch_delete(Batch, CfH, K);
-rdb_delete(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
+rdb_delete_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
     rocksdb:transaction_delete(TxH, CfH, K);
-rdb_delete(#{db_ref := DbRef, cf_handle := CfH} = R, K, Opts) ->
-    rocksdb:delete(DbRef, CfH, K, write_opts(R, Opts)).
+rdb_delete_(#{db_ref := DbRef, cf_handle := CfH}, K, WOpts) ->
+    rocksdb:delete(DbRef, CfH, K, WOpts).
 
-rdb_iterator(#{db_ref := DbRef, tx_handle := TxH, cf_handle := CfH} = R, Opts) ->
-    rocksdb:transaction_iterator(DbRef, TxH, CfH, read_opts(R, Opts));
-rdb_iterator(#{db_ref := DbRef, cf_handle := CfH} = R, Opts) ->
-    rocksdb:iterator(DbRef, CfH, read_opts(R, Opts)).
+rdb_iterator(R, Opts) ->
+    rdb_iterator_(R, read_opts(R, Opts)).
+
+rdb_iterator_(#{db_ref := DbRef, tx_handle := TxH, cf_handle := CfH}, ROpts) ->
+    rocksdb:transaction_iterator(DbRef, TxH, CfH, ROpts);
+rdb_iterator_(#{db_ref := DbRef, cf_handle := CfH}, ROpts) ->
+    rocksdb:iterator(DbRef, CfH, ROpts).
+
+rdb_merge(R, K, Op, Opts) ->
+    rdb_merge_(R, K, term_to_binary(Op), write_opts(R, Opts)).
+
+rdb_merge_(#{db_ref := DbRef, cf_handle := CfH}, K, Op, WOpts) ->
+    rocksdb:merge(DbRef, CfH, K, Op, WOpts).
 
 write_opts(#{write_opts := Os}, Opts) -> Os ++ Opts;
 write_opts(_, Opts) -> 
@@ -626,18 +674,18 @@ read_opts(_, Opts) ->
 
 -define(EOT, '$end_of_table').
 
-i_first(I) ->
+i_first(I, Ref) ->
     case i_move(I, first) of
         {ok, First, _} ->
-            decode_key(First);
+            decode_key(First, Ref);
         _ ->
             ?EOT
     end.
 
-i_last(I) ->
+i_last(I, Ref) ->
     case i_move(I, last) of
         {ok, Last, _} ->
-            decode_key(Last);
+            decode_key(Last, Ref);
         _ ->
             ?EOT
     end.
@@ -645,22 +693,27 @@ i_last(I) ->
 i_move(I, Where) ->
     rocksdb:iterator_move(I, Where).
 
-i_next(I, Key) ->
-    i_move_to_next(i_move(I, Key), I, Key).
+i_next(I, Key, Ref) ->
+    i_move_to_next(i_move(I, Key), I, Key, Ref).
 
-i_prev(I, Key) ->
-    i_move_to_prev(i_move(I, Key), I, Key).
+i_prev(I, Key, Ref) ->
+    case i_move(I, Key) of
+        {ok, _, _} ->
+            i_move_to_prev(i_move(I, prev), I, Key, Ref);
+        {error, invalid_iterator} ->
+            i_move_to_prev(i_move(I, last), I, Key, Ref)
+    end.
 
-i_move_to_next({ok, Key, _}, I, Key) ->
-    i_move_to_next(i_move(I, next), I, Key);
-i_move_to_next({ok, NextKey, _}, _, _) ->
-    decode_key(NextKey);
-i_move_to_next(_, _, _) ->
+i_move_to_next({ok, Key, _}, I, Key, Ref) ->
+    i_move_to_next(i_move(I, next), I, Key, Ref);
+i_move_to_next({ok, NextKey, _}, _, _, Ref) ->
+    decode_key(NextKey, Ref);
+i_move_to_next(_, _, _, _) ->
     ?EOT.
 
-i_move_to_prev({ok, K, _}, _I, Key) when K < Key ->
-    decode_key(K);
-i_move_to_prev({ok, _, _}, I, Key) ->
-    i_move_to_prev(i_move(I, prev), I, Key);
-i_move_to_prev(_, _, _) ->
+i_move_to_prev({ok, K, _}, _I, Key, Ref) when K < Key ->
+    decode_key(K, Ref);
+i_move_to_prev({ok, _, _}, I, Key, Ref) ->
+    i_move_to_prev(i_move(I, prev), I, Key, Ref);
+i_move_to_prev(_, _, _, _) ->
     ?EOT.
