@@ -13,7 +13,8 @@
         ]).
 
 -export([ error_handling/1
-        , indexes/1]).
+        , indexes/1
+        , mrdb_transactions/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -25,7 +26,10 @@ all() ->
 
 groups() ->
     [
-      {all_tests, [sequence], [error_handling, indexes]}
+      {all_tests, [sequence], [ {group, mrdb}
+                              , indexes
+                              , error_handling ]}
+    , {mrdb, [sequence], [ mrdb_transactions ]}
     ].
 
 
@@ -41,6 +45,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(mrdb, Config) ->
+    mnesia:stop(),
+    ok = mnesia_rocksdb_tlib:start_mnesia(reset),
+    Config;
 init_per_group(_, Config) ->
     Config.
 
@@ -51,4 +59,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
+    ok.
+
+mrdb_transactions(_Config) ->
     ok.

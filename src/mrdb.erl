@@ -59,6 +59,8 @@
         , read_info/2
         ]).
 
+-export([activity/3]).
+
 -export([abort/1]).
 
 %% Low-level access wrappers.
@@ -123,6 +125,87 @@
                           {low_pri, boolean()}].
 %% ============================================================
 
+activity(Type, Alias, F) ->
+    #{db_ref := DbRef} = ensure_ref({admin, Alias}),
+    case TxType = tx_type(Type) of
+        tx ->
+            {ok, TxH} = rocksdb:transaction(DbRef, []),
+            push_ctxt(#{ type   => TxType
+                       , alias  => Alias
+                       , db_ref => DbRef
+                       , handle => TxH });
+        batch ->
+            {ok, Batch} = rocksdb:batch(),
+            push_ctxt(#{ type   => TxType
+                       , alias  => Alias
+                       , db_ref => DbRef
+                       , handle => Batch })
+    end,
+    try F() of
+        Res ->
+            commit_and_pop(Res)
+    catch
+        Cat:Err when Cat==error;
+                     Cat==exit ->
+            abort_and_pop(Cat, Err)
+    end.
+
+ctxt() -> {?MODULE, ctxt}.
+
+push_ctxt(C) ->
+    K = ctxt(),
+    C1 = case get(K) of
+             undefined -> [C];
+             C0        -> [C|C0]
+         end,
+    put(K, C1),
+    ok.
+
+pop_ctxt() ->
+    K = ctxt(),
+    case get(K) of
+        undefined -> error(no_ctxt);
+        [C]       -> erase(K) , C;
+        [H|T]     -> put(K, T), H
+    end.
+
+tx_type(T) when T==tx; T==batch -> T;
+tx_type(T) ->
+    case T of
+        transaction      -> tx;
+        {transaction,_}  -> tx;
+        sync_transaction -> tx;
+        async_dirty      -> batch;
+        sync_dirty       -> batch;
+        _ -> abort(invalid_activity_type)
+    end.
+
+commit_and_pop(Res) ->
+    #{type := Type, handle := H, db_ref := DbRef} = pop_ctxt(),
+    case Type of
+        tx ->
+            ok = rocksdb:transaction_commit(H),
+            Res;
+        batch ->
+            case rocksdb:write_batch(DbRef, H, []) of
+                ok -> Res;
+                Other ->
+                    Other
+            end
+    end.
+
+abort_and_pop(Cat, Err) ->
+    #{type := Type, handle := H} = pop_ctxt(),
+    case Type of
+        tx    -> ok = rocksdb:transaction_abort(H);  %% doesn't yet exist
+        batch -> ok = rocksdb:release_batch(H)
+    end,
+    case Cat of
+        error -> error(Err);
+        exit  -> exit(Err);
+        throw -> throw(Err)
+    end.
+
 abort(Reason) ->
     erlang:error({mrdb_abort, Reason}).
 
@@ -161,12 +244,21 @@ get_ref(Tab) ->
 ensure_ref(Ref) when is_map(Ref) ->
     Ref;
 ensure_ref(Other) ->
-    get_ref(Other).
+    maybe_tx_ctxt(get(ctxt()), get_ref(Other)).
 
 ensure_ref(Ref, R) when is_map(Ref) ->
     inherit_ctxt(Ref, R);
 ensure_ref(Other, R) ->
     inherit_ctxt(get_ref(Other), R).
+
+maybe_tx_ctxt(undefined,             R) -> R;
+maybe_tx_ctxt(_, #{batch     := _} = R) -> R;
+maybe_tx_ctxt(_, #{tx_handle := _} = R) -> R;
+maybe_tx_ctxt([#{type := Type, handle := H}|_], R) ->
+    case Type of
+        tx    -> R#{tx_handle => H};
+        batch -> R#{batch     => H}
+    end.
 
 inherit_ctxt(Ref, R) ->
     maps:merge(Ref, maps:with([batch, tx_handle], R)).
