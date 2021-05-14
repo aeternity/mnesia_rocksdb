@@ -287,10 +287,25 @@ insert(Tab, Obj) ->
 -spec insert(ref_or_tab(), obj(), write_options()) -> ok.
 insert(Tab, Obj, Opts) ->
     #{name := Name} = Ref = ensure_ref(Tab),
+    validate_obj(Obj, Ref),
     Pos = keypos(Name),
     Key = element(Pos, Obj),
     EncVal = encode_val(Obj, Ref),
     insert_(Ref, Key, encode_key(Key, Ref), EncVal, Obj, Opts).
+
+validate_obj(_, #{mode := mnesia}) ->
+    %% mnesia does the validation
+    ok;
+validate_obj(Obj, #{attr_pos := AP, properties := #{record_name := RN}}) when is_tuple(Obj) ->
+    Arity = map_size(AP) + 1,
+    case {element(1, Obj), tuple_size(Obj)} of
+        {RN, Arity} ->
+            ok;
+        _ ->
+            abort(badarg)
+    end;
+validate_obj(_, _) ->
+    abort(badarg).
 
 insert_(#{semantics := bag} = Ref, Key, EncKey, EncVal, Obj, Opts) ->
     batch_if_index(Ref, insert, bag, fun insert_bag/4, Key, EncKey, EncVal, Obj, Opts);
