@@ -190,12 +190,21 @@ insert(Tab, Obj) ->
     insert(Tab, Obj, []).
 
 -spec insert(ref_or_tab(), obj(), write_options()) -> ok.
-insert(Tab, Obj, Opts) ->
+insert(Tab, Obj0, Opts) ->
     #{name := Name} = Ref = ensure_ref(Tab),
+    Obj = maybe_munge_index_obj(Name, Obj0),
     Pos = keypos(Name),
     Key = element(Pos, Obj),
     EncVal = encode_val(setelement(Pos, Obj, [])),
     insert_(Ref, Key, encode_key(Key), EncVal, Obj, Opts).
+
+%% Mnesia may serve us indexing operations, believing an index to be
+%% a bag. We don't do bag indexes, so we convert the object into an
+%% ordered index entry.
+maybe_munge_index_obj({_, index, _}, {FK, PK}) ->
+    {{FK,PK}};
+maybe_munge_index_obj(_, Obj) ->
+    Obj.
 
 insert_(#{semantics := bag} = Ref, Key, EncKey, EncVal, Obj, Opts) ->
     batch_if_index(Ref, insert, bag, fun insert_bag/4, Key, EncKey, EncVal, Obj, Opts);

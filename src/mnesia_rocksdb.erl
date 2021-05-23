@@ -118,7 +118,8 @@
          terminate/2,
          code_change/3]).
 
--export([ix_prefixes/3]).
+-export([ ix_prefixes/3
+        , ix_listvals/3]).
 
 -import(mrdb, [ with_iterator/2
               ]).
@@ -156,7 +157,7 @@
 
 -type data_tab() :: atom().
 -type index_pos() :: integer() | {atom()}.
--type index_type() :: ordered.
+-type index_type() :: ordered | bag.
 -type index_info() :: {index_pos(), index_type()}.
 -type retainer_name() :: any().
 -type index_tab() :: {data_tab(), index, index_info()}.
@@ -263,7 +264,7 @@ remove_aliases(Aliases) ->
 %%
 semantics(_Alias, storage) -> disc_only_copies;
 semantics(_Alias, types  ) -> [set, ordered_set, bag];
-semantics(_Alias, index_types) -> [ordered];
+semantics(_Alias, index_types) -> [ordered, bag];  % we treat bag as ordered
 semantics(_Alias, index_fun) -> fun index_f/4;
 semantics(_Alias, _) -> undefined.
 
@@ -302,6 +303,14 @@ prefixes(<<P:3/binary, _/binary>>) ->
     [P];
 prefixes(_) ->
     [].
+
+ix_listvals(_Tab, _Pos, Obj) ->
+    lists:foldl(
+      fun(V, Acc) when is_list(V) ->
+              V ++ Acc;
+         (_, Acc) ->
+              Acc
+      end, [], tl(tuple_to_list(Obj))).
 
 %% For now, only verify that the type is set or ordered_set.
 %% set is OK as ordered_set is a kind of set.
