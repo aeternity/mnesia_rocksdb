@@ -207,14 +207,14 @@ rebuilt on startup. Since backend plugins were introduced mainly in
 order to support very large tables, a couple of callback functions
 were added in order to detect whether a full rebuild is needed.
 
-    The callback functions are `Mod:is_index_consistent/2` and
-    `Mod:index_is_consistent/3`.
-    The first function (figuratively) always returns `false` for indexes
-    on built-in table types. Backend plugin modules should always return
-    `false` if they have no information. After building the index, mnesia
-    calls `Mod:index_is_consistent(Alias, IxTab, true)`, and the callback
-    is expected to persist this information. `IxTab`, in this case, is
-    a logical name for the index 'table': `{Tab, index, PosInfo}`
+> The callback functions are `Mod:is_index_consistent/2` and
+> `Mod:index_is_consistent/3`.
+> The first function (figuratively) always returns `false` for indexes
+> on built-in table types. Backend plugin modules should always return
+> `false` if they have no information. After building the index, mnesia
+> calls `Mod:index_is_consistent(Alias, IxTab, true)`, and the callback
+> is expected to persist this information. `IxTab`, in this case, is
+> a logical name for the index 'table': `{Tab, index, PosInfo}`
 
 #### Ordered indexes
 
@@ -234,16 +234,16 @@ When creating an index, you can specify the type of index as `bag` or
 table types, and for external types, whatever is the first type in the
 list of supported index types returned by `Mod:semantics(Alias, index_types)`.
 
-    For `mnesia_rocksdb`, only `ordered` is supported, but a bug in mnesia
-    makes it ignore this, and try to create a bag index anyway. Currently,
-    mnesia_rocksdb accepts it, but treats it as an ordered set, which makes
-    it even worse. This will be fixed, at least in mnesia_rocksdb.
-    Note that while e.g. mnesia_rocksdb supports bag types, they are not
-    efficiently implemented.
+> For `mnesia_rocksdb`, only `ordered` is supported, but a bug in mnesia
+> makes it ignore this, and try to create a bag index anyway. Currently,
+> mnesia_rocksdb accepts it, but treats it as an ordered set, which makes
+> it even worse. This will be fixed, at least in mnesia_rocksdb.
+> Note that while e.g. mnesia_rocksdb supports bag types, they are not
+> efficiently implemented.
 
 Mnesia currently doesn't allow specifying an index type in
- `mnesia:add_table_index/2`, so simply indicate the index position,
- and let the backend choose the default.
+`mnesia:add_table_index/2`, so simply indicate the index position,
+and let the backend choose the default.
 
 Having ordered indexes opens up for some new possibilities, but
 there are currently no functions in mnesia such as index_first, index_next
