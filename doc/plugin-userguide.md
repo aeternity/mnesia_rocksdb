@@ -235,10 +235,9 @@ table types, and for external types, whatever is the first type in the
 list of supported index types returned by `Mod:semantics(Alias, index_types)`.
 
 > For `mnesia_rocksdb`, only `ordered` is supported, but a bug in mnesia
-> makes it ignore this, and try to create a bag index anyway. Currently,
-> mnesia_rocksdb accepts it, but treats it as an ordered set, which makes
-> it even worse. This will be fixed, at least in mnesia_rocksdb.
-> Note that while e.g. mnesia_rocksdb supports bag types, they are not
+> makes it ignore this, and try to create a bag index anyway. The
+> `mnesia_rocksdb` plugin rejects this.
+> Note that while e.g. mnesia_rocksdb supports regular bag tables, they are not
 > efficiently implemented.
 
 Mnesia currently doesn't allow specifying an index type in

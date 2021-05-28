@@ -619,7 +619,8 @@ default_encoding(#{name := {_, retainer, _}}) ->
 default_encoding(#{semantics := Sem, properties := #{attributes := As}}) ->
     KeyEnc = case Sem of
                  ordered_set -> sext;
-                 set         -> term
+                 set         -> term;
+                 bag         -> sext
              end,
     ValEnc = case As of
                  [_, _] ->

@@ -67,38 +67,38 @@
          remove_aliases/1]).
 
 %% schema level callbacks
--export([semantics/2,
-         check_definition/4,
-         create_table/3,
-         load_table/4,
-         close_table/2,
-         sync_close_table/2,
-         delete_table/2,
-         info/3]).
+-export([ semantics/2
+        , check_definition/4
+        , create_table/3
+        , load_table/4
+        , close_table/2
+        , sync_close_table/2
+        , delete_table/2
+        , info/3 ]).
 
 %% table synch calls
--export([sender_init/4,
-         sender_handle_info/5,
-         receiver_first_message/4,
-         receive_data/5,
-         receive_done/4]).
+-export([ sender_init/4
+        , sender_handle_info/5
+        , receiver_first_message/4
+        , receive_data/5
+        , receive_done/4 ]).
 
 %% low-level accessor callbacks.
--export([delete/3,
-         first/2,
-         fixtable/3,
-         insert/3,
-         last/2,
-         lookup/3,
-         match_delete/3,
-         next/3,
-         prev/3,
-         repair_continuation/2,
-         select/1,
-         select/3,
-         select/4,
-         slot/3,
-         update_counter/4]).
+-export([ delete/3
+        , first/2
+        , fixtable/3
+        , insert/3
+        , last/2
+        , lookup/3
+        , match_delete/3
+        , next/3
+        , prev/3
+        , repair_continuation/2
+        , select/1
+        , select/3
+        , select/4
+        , slot/3
+        , update_counter/4 ]).
 
 %% Index consistency
 -export([index_is_consistent/3,
@@ -124,7 +124,8 @@
          terminate/2,
          code_change/3]).
 
--export([ix_prefixes/3]).
+-export([ ix_prefixes/3
+        , ix_listvals/3 ]).
 
 -import(mrdb, [ with_iterator/2
               ]).
@@ -301,7 +302,7 @@ remove_aliases(Aliases) ->
 %%
 semantics(_Alias, storage) -> disc_only_copies;
 semantics(_Alias, types  ) -> [set, ordered_set, bag];
-semantics(_Alias, index_types) -> [ordered];
+semantics(_Alias, index_types) -> [ordered, bag];  % treat bag as ordered
 semantics(_Alias, index_fun) -> fun index_f/4;
 semantics(_Alias, _) -> undefined.
 
@@ -341,6 +342,14 @@ prefixes(<<P:3/binary, _/binary>>) ->
 prefixes(_) ->
     [].
 
+ix_listvals(_Tab, _Pos, Obj) ->
+    lists:foldl(
+      fun(V, Acc) when is_list(V) ->
+              V ++ Acc;
+         (_, Acc) ->
+              Acc
+      end, [], tl(tuple_to_list(Obj))).
+
 %% For now, only verify that the type is set or ordered_set.
 %% set is OK as ordered_set is a kind of set.
 check_definition(Alias, Tab, Nodes, Props) ->
@@ -357,6 +366,14 @@ check_definition_entry(_Tab, _Id, {type, T} = P) when T==set; T==ordered_set; T=
     P;
 check_definition_entry(Tab, Id, {type, T}) ->
     mnesia:abort({combine_error, Tab, [Id, {type, T}]});
+check_definition_entry(Tab, Id, {index, Ixs} = P) ->
+    case [true || {_, bag} <- Ixs] of
+        [] ->
+            P;
+        [_|_] ->
+            %% Let's not pretend-support bag indexes
+            mnesia:abort({combine_error, Tab, [Id, P]})
+    end;
 check_definition_entry(_Tab, _Id, {user_properties, UPs} = P) ->
     case lists:keyfind(rocksdb_standalone, 1, UPs) of
         false -> ok;
@@ -582,8 +599,18 @@ lookup(_Alias, Tab, Key) ->
 match_delete(Alias, Tab, Pat) ->
     case access_type(Tab) of
         legacy -> call(Alias, Tab, {match_delete, Pat});
-        R -> mrdb:match_delete(R, Pat)
+        R -> match_delete_(R, Pat)
     end.
+
+match_delete_(#{name := {_, index, {_,bag}}, semantics := set} = R, Pat) ->
+    case Pat of
+        '_' ->
+            mrdb:match_delete(R, Pat);
+        {V, Key} ->
+            db_delete(R, {V, Key}, [], R)
+    end;
+match_delete_(R, Pat) ->
+    mrdb:match_delete(R, Pat).
 
 next(_Alias, Tab, Key) ->
     mrdb:next(Tab, Key).
@@ -597,9 +624,14 @@ repair_continuation(Cont, _Ms) ->
 select(Cont) ->
     mrdb:select(Cont).
 
-select(_Alias, Tab, Ms) ->
-    mrdb:select(Tab, Ms).
+select(Alias, Tab, Ms) ->
+    select(Alias, Tab, Ms, infinity).
 
+select(_Alias, {_,index,{_,bag}} = IxTab, Ms, Limit) ->
+    %% We at mnesia_rocksdb do not support bag indexes, but ordered indexes
+    %% have the same outward semantics (more or less). Reshape the match pattern.
+    [{{IxKey,'$1'}, [], ['$1']}] = Ms,
+    mrdb:select(IxTab, [{{{IxKey,'$1'}}, [], [{element, 1, '$_'}]}], Limit);
 select(_Alias, Tab, Ms, Limit) when Limit==infinity; is_integer(Limit) ->
     mrdb:select(Tab, Ms, Limit).
 

@@ -27,17 +27,20 @@
 select(Ref, MS, Limit) when is_map(Ref), is_list(MS) ->
     select(Ref, MS, false, Limit).
 
-select(#{name := Tab} = Ref, MS, AccKeys, Limit)
-  when is_list(MS), is_boolean(AccKeys) ->
-    Keypat = keypat(MS, keypos(Tab)),
-    Sel = #sel{tab = Tab,
-               ref = Ref,
-               keypat = Keypat,
-               ms = MS,
-               compiled_ms = ets:match_spec_compile(MS),
-               key_only = needs_key_only(MS),
-               limit = Limit},
+select(Ref, MS, AccKeys, Limit)
+  when is_map(Ref), is_list(MS), is_boolean(AccKeys) ->
+    Sel = mk_sel(Ref, MS, Limit),
     mrdb:with_iterator(Ref, fun(I) -> i_select(I, Sel, AccKeys, []) end).
+
+mk_sel(#{name := Tab} = Ref, MS, Limit) ->
+    Keypat = keypat(MS, keypos(Tab), Ref),
+    #sel{tab = Tab,
+         ref = Ref,
+         keypat = Keypat,
+         ms = MS,
+         compiled_ms = ets:match_spec_compile(MS),
+         key_only = needs_key_only(MS),
+         limit = Limit}.
 
 select(Cont) ->
     case Cont of
@@ -78,17 +81,19 @@ i_select(I, #sel{ keypat = Pfx
     select_traverse(rocksdb:iterator_move(I, StartKey), Limit,
                     Pfx, MS, I, Sel, AccKeys, Acc).
 
-needs_key_only([{HP,_,Body}]) ->
+needs_key_only([Pat]) ->
+    needs_key_only_(Pat);
+needs_key_only([_|_] = Pats) ->
+    lists:all(fun needs_key_only_/1, Pats).
+
+needs_key_only_({HP, _, Body}) ->
     BodyVars = lists:flatmap(fun extract_vars/1, Body),
     %% Note that we express the conditions for "needs more than key" and negate.
     not(wild_in_body(BodyVars) orelse
         case bound_in_headpat(HP) of
             {all,V} -> lists:member(V, BodyVars);
             Vars when is_list(Vars) -> any_in_body(lists:keydelete(2,1,Vars), BodyVars)
-        end);
-needs_key_only(_) ->
-    %% don't know
-    false.
+        end).
 
 extract_vars([H|T]) ->
     extract_vars(H) ++ extract_vars(T);
@@ -219,14 +224,14 @@ iterator_next(I, K) ->
             Other
     end.
 
-keypat([H|T], KeyPos) ->
-    keypat(T, KeyPos, keypat_pfx(H, KeyPos)).
+keypat([H|T], KeyPos, Ref) ->
+    keypat(T, KeyPos, Ref, keypat_pfx(H, KeyPos, Ref)).
 
-keypat(_, _, <<>>) -> <<>>;
-keypat([H|T], KeyPos, Pfx0) ->
-    Pfx = keypat_pfx(H, KeyPos),
-    keypat(T, KeyPos, common_prefix(Pfx, Pfx0));
-keypat([], _, Pfx) ->
+keypat(_, _, _, <<>>) -> <<>>;
+keypat([H|T], KeyPos, Ref, Pfx0) ->
+    Pfx = keypat_pfx(H, KeyPos, Ref),
+    keypat(T, KeyPos, Ref, common_prefix(Pfx, Pfx0));
+keypat([], _, _, Pfx) ->
     Pfx.
 
 common_prefix(<<H, T/binary>>, <<H, T1/binary>>) ->
@@ -234,9 +239,9 @@ common_prefix(<<H, T/binary>>, <<H, T1/binary>>) ->
 common_prefix(_, _) ->
     <<>>.
 
-keypat_pfx({HeadPat,_Gs,_}, KeyPos) when is_tuple(HeadPat) ->
+keypat_pfx({HeadPat,_Gs,_}, KeyPos, #{encoding := {sext,_}}) when is_tuple(HeadPat) ->
     KP      = element(KeyPos, HeadPat),
     sext:prefix(KP);
-keypat_pfx(_, _) ->
+keypat_pfx(_, _, _) ->
     <<>>.
 

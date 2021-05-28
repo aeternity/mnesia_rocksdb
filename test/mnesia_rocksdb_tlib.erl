@@ -20,10 +20,14 @@
 
 -export([start_mnesia/0,
          start_mnesia/1,
+         restart_reset_mnesia/0,
          create_table/1,
          create_table/3,
          trace/2]).
 
+restart_reset_mnesia() ->
+    mnesia:stop(),
+    start_mnesia(reset).
 
 start_mnesia() ->
     start_mnesia(false).
