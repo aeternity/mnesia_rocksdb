@@ -41,9 +41,11 @@
         , tx_ref/2
         , tx_commit/1
         , with_iterator/2, with_iterator/3
+        , with_rdb_iterator/2, with_rdb_iterator/3
         , iterator_move/2
         , rdb_iterator_move/2
-        , iterator/1
+        , iterator/1     , iterator/2
+        , iterator_close/1
         , read/2         , read/3
         , index_read/3
         , insert/2       , insert/3
@@ -81,6 +83,14 @@
                             , encode_val/2
                             , decode_val/3 ]).
 
+-export_type( [ mrdb_iterator/0
+              , itr_handle/0
+              , iterator_action/0
+              , db_ref/0
+              , ref_or_tab/0
+              , index_position/0
+              ]).
+
 -include("mnesia_rocksdb.hrl").
 
 -type tab_name()  :: atom().
@@ -95,21 +105,46 @@
 
 -type key() :: any().
 -type obj() :: tuple().
+-type index_position() :: atom() | pos().
 
 -type db_handle()  :: rocksdb:db_handle().
 -type cf_handle()  :: rocksdb:cf_handle().
 -type tx_handle()  :: rocksdb:transaction_handle().
 -type itr_handle() :: rocksdb:itr_handle().
+-type batch_handle() :: rocksdb:batch_handle().
 
--type db_ref() :: #{ db_ref := db_handle()
-                   , cf_handle := cf_handle()
-                   , tx_handle := tx_handle() }.
+-type pos() :: non_neg_integer().
 
--type tx_ref() :: #{ db_ref := db_handle()
-                   , cf_handle := cf_handle()
-                   , tx_handle := tx_handle() }.
+-type properties() :: #{ record_name := atom()
+                       , attributes  := [atom()]
+                       , index       := [{pos(), bag | ordered}]
+                       }.
+-type semantics()  :: bag | set.
+-type key_encoding() :: 'raw' | 'sext' | 'term'.
+-type val_encoding() :: {'value' | 'object', 'term' | 'raw'}
+                      | 'raw'.
+-type encoding()   :: 'raw' | 'sext' | 'term'
+                    | {key_encoding(), val_encoding()}.
+-type attr_pos() :: #{atom() := pos()}.
 
--type ref_or_tab() :: table() | db_ref() | tx_ref().
+-type db_ref() :: #{ name       => table()
+                   , alias      => atom()
+                   , vsn        => non_neg_integer()
+                   , db_ref     := db_handle()
+                   , cf_handle  := cf_handle()
+                   , semantics  := semantics()
+                   , encoding   := encoding()
+                   , attr_pos   := attr_pos()
+                   , type       := column_family | standalone
+                   , status     := open | closed | pre_existing
+                   , properties := properties()
+                   , mode       => mnesia
+                   , ix_vals_f  => fun( (tuple()) -> [any()] )
+                   , batch      => batch_handle()
+                   , tx_handle  => tx_handle()
+                   , _ => _}.
+
+-type ref_or_tab() :: table() | db_ref().
 
 %% ============================================================
 %% these types should be exported from rocksdb.erl
@@ -128,7 +163,16 @@
                           {ignore_missing_column_families, boolean()} |
                           {no_slowdown, boolean()} |
                           {low_pri, boolean()}].
+
+-type iterator_action() :: first | last | next | prev | binary()
+                         | {seek, binary()} | {seek_for_prev, binary()}.
+
 %% ============================================================
+
+-record(mrdb_iter, { i   :: itr_handle()
+                   , ref :: db_ref() }).
+
+-type mrdb_iterator() :: #mrdb_iter{}.
 
 activity(Type, Alias, F) ->
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
@@ -202,29 +246,30 @@ commit_and_pop(Res) ->
 abort_and_pop(Cat, Err) ->
     #{type := Type, handle := H} = pop_ctxt(),
     case Type of
-        tx    -> ok = rocksdb:transaction_abort(H);  %% doesn't yet exist
+        %% tx    -> ok = rocksdb:transaction_abort(H);  %% doesn't yet exist
+        tx    -> error(nyi);
         batch -> ok = rocksdb:release_batch(H)
     end,
     case Cat of
         error -> error(Err);
-        exit  -> exit(Err);
-        throw -> throw(Err)
+        exit  -> exit(Err)
+        %% throw -> throw(Err)
     end.
 
 abort(Reason) ->
     erlang:error({mrdb_abort, Reason}).
 
--spec new_tx(table() | db_ref()) -> tx_ref().
+-spec new_tx(table() | db_ref()) -> db_ref().
 new_tx(Tab) ->
     new_tx(Tab, []).
 
--spec new_tx(ref_or_tab(), write_options()) -> tx_ref().
+-spec new_tx(ref_or_tab(), write_options()) -> db_ref().
 new_tx(Tab, Opts) ->
     #{db_ref := DbRef} = R = ensure_ref(Tab),
     {ok, TxH} = rocksdb:transaction(DbRef, write_opts(R, Opts)),
     R#{tx_handle => TxH}.
 
--spec tx_ref(ref_or_tab() | tx_ref() | tx_ref(), tx_handle()) -> tx_ref().
+-spec tx_ref(ref_or_tab() | db_ref() | db_ref(), tx_handle()) -> db_ref().
 tx_ref(Tab, TxH) ->
     case ensure_ref(Tab) of
         #{tx_handle := TxH} = R ->
@@ -235,17 +280,17 @@ tx_ref(Tab, TxH) ->
             R#{tx_handle => TxH}
     end.
 
--spec tx_commit(tx_handle() | tx_ref()) -> ok.
+-spec tx_commit(tx_handle() | db_ref()) -> ok.
 tx_commit(#{tx_handle := TxH}) ->
     rocksdb:transaction_commit(TxH);
-tx_commit(TxH) when is_reference(TxH); is_binary(TxH) ->
+tx_commit(TxH) ->
     rocksdb:transaction_commit(TxH).
 
 -spec get_ref(table()) -> db_ref().
 get_ref(Tab) ->
     mnesia_rocksdb_admin:get_ref(Tab).
 
--spec ensure_ref(ref_or_tab()) -> db_ref() | tx_ref().
+-spec ensure_ref(ref_or_tab()) -> db_ref().
 ensure_ref(Ref) when is_map(Ref) ->
     Ref;
 ensure_ref(Other) ->
@@ -268,23 +313,41 @@ maybe_tx_ctxt([#{type := Type, handle := H}|_], R) ->
 inherit_ctxt(Ref, R) ->
     maps:merge(Ref, maps:with([batch, tx_handle], R)).
 
-
--spec with_iterator(ref_or_tab(), fun( (itr_handle()) -> Res )) -> Res.
+-spec with_iterator(ref_or_tab(), fun( (mrdb_iterator()) -> Res )) -> Res.
 with_iterator(Tab, Fun) ->
     with_iterator(Tab, Fun, []).
 
--spec with_iterator(ref_or_tab(), fun( (itr_handle()) -> Res ), read_options()) -> Res.
-with_iterator(Tab, Fun, Opts) when is_function(Fun, 1) ->
+-spec with_iterator(ref_or_tab(), fun( (mrdb_iterator()) -> Res ), read_options()) -> Res.
+with_iterator(Tab, Fun, Opts) ->
     R = ensure_ref(Tab),
-    with_iterator_(R, Fun, read_opts(R, Opts)).
+    with_iterator_(R, Fun, Opts).
 
-with_iterator_(Ref, Fun, ROpts) ->
+-spec with_rdb_iterator(ref_or_tab(), fun( (itr_handle()) -> Res )) -> Res.
+with_rdb_iterator(Tab, Fun) ->
+    with_rdb_iterator(Tab, Fun, []).
+
+-spec with_rdb_iterator(ref_or_tab(), fun( (itr_handle()) -> Res ), read_options()) -> Res.
+with_rdb_iterator(Tab, Fun, Opts) when is_function(Fun, 1) ->
+    R = ensure_ref(Tab),
+    with_rdb_iterator_(R, Fun, read_opts(R, Opts)).
+
+with_iterator_(R, Fun, Opts) ->
+    {ok, I} = rdb_iterator_(R, Opts),
+    try Fun(#mrdb_iter{ i   = I
+                      , ref = R })
+    after
+        rocksdb:iterator_close(I)
+    end.
+
+with_rdb_iterator_(Ref, Fun, ROpts) ->
     {ok, I} = rdb_iterator_(Ref, ROpts),
     try Fun(I)
     after
         rocksdb:iterator_close(I)
     end.
 
+-spec iterator_move(mrdb_iterator(), iterator_action()) ->
+          {ok, tuple()} | {error, any()}.
 iterator_move(#mrdb_iter{i = I, ref = Ref}, Dir) ->
     case i_move(I, Dir) of
         {ok, EncK, EncV} ->
@@ -295,8 +358,24 @@ iterator_move(#mrdb_iter{i = I, ref = Ref}, Dir) ->
             Other
     end.
 
-iterator(#mrdb_iter{i = I}) ->
-    I.
+-spec iterator(ref_or_tab()) -> {ok, mrdb_iterator()} | {error, _}.
+iterator(Tab) ->
+    iterator(Tab, []).
+
+-spec iterator(ref_or_tab(), read_options()) -> {ok, mrdb_iterator()} | {error, _}.
+iterator(Tab, Opts) ->
+    Ref = ensure_ref(Tab),
+    case rdb_iterator(Ref, Opts) of
+        {ok, I} ->
+            {ok, #mrdb_iter{ i = I
+                           , ref = Ref }};
+        Other ->
+            Other
+    end.
+
+-spec iterator_close(mrdb_iterator()) -> ok.
+iterator_close(#mrdb_iter{i = I}) ->
+    rocksdb:iterator_close(I).
 
 rdb_iterator_move(I, Dir) ->
     i_move(I, Dir).
@@ -497,7 +576,7 @@ read_bag_(#{name := Name} = Ref, Key, RetRaw, Opts) ->
     Pos = keypos(Name),
     Enc = encode_key(Key, Ref),
     Sz = byte_size(Enc),
-    with_iterator_(
+    with_rdb_iterator_(
       Ref, fun(I) ->
                    read_bag_i_(Sz, Enc, i_move(I, Enc), Key, I, Pos, Ref, RetRaw)
            end, read_opts(Ref, Opts)).
@@ -543,7 +622,7 @@ index_read_(#{name := Main, semantics := Sem} = Ref, Val, Ix) ->
                                           It, IxValPfx, Sz, Ref)
                      end
           end,
-    with_iterator(IxRef, Fun).
+    with_rdb_iterator(IxRef, Fun).
       %% IxRef,
       %% fun(It) ->
       %%         index_read_i(rocksdb:iterator_move(It, IxValPfx),
@@ -686,7 +765,7 @@ first(Tab) ->
 -spec first(ref_or_tab(), read_options()) -> key() | '$end_of_table'.
 first(Tab, Opts) ->
     Ref = ensure_ref(Tab),
-    with_iterator(Ref, fun(I) -> i_first(I, Ref) end, Opts).
+    with_rdb_iterator(Ref, fun(I) -> i_first(I, Ref) end, Opts).
 
 -spec last(ref_or_tab()) -> key() | '$end_of_table'.
 last(Tab) ->
@@ -695,7 +774,7 @@ last(Tab) ->
 -spec last(ref_or_tab(), read_options()) -> key() | '$end_of_table'.
 last(Tab, Opts) ->
     Ref = ensure_ref(Tab),
-    with_iterator(Ref, fun(I) -> i_last(I, Ref) end, Opts).
+    with_rdb_iterator(Ref, fun(I) -> i_last(I, Ref) end, Opts).
 
 -spec next(ref_or_tab(), key()) -> key() | '$end_of_table'.
 next(Tab, K) ->
@@ -705,7 +784,7 @@ next(Tab, K) ->
 next(Tab, K, Opts) ->
     Ref = ensure_ref(Tab),
     EncKey = encode_key(K, Ref),
-    with_iterator(Ref, fun(I) -> i_next(I, EncKey, Ref) end, Opts).
+    with_rdb_iterator(Ref, fun(I) -> i_next(I, EncKey, Ref) end, Opts).
 
 -spec prev(ref_or_tab(), key()) -> key() | '$end_of_table'.
 prev(Tab, K) ->
@@ -715,7 +794,7 @@ prev(Tab, K) ->
 prev(Tab, K, Opts) ->
     Ref = ensure_ref(Tab),
     EncKey = encode_key(K, Ref),
-    with_iterator(Ref, fun(I) -> i_prev(I, EncKey, Ref) end, Opts).
+    with_rdb_iterator(Ref, fun(I) -> i_prev(I, EncKey, Ref) end, Opts).
 
 select(Tab, Pat) ->
     select(Tab, Pat, infinity).
@@ -825,7 +904,7 @@ get_info_res(Res, Default) ->
 
 insert_bag_v1(Ref, K, V, Opts) ->
     KSz = byte_size(K),
-    with_iterator(
+    with_rdb_iterator(
       Ref, fun(I) ->
                    do_insert_bag_v1(KSz, K, i_move(I, K), I, V, 0, Ref, Opts)
            end).
@@ -852,7 +931,7 @@ delete_bag(Ref, _, _, RawKey, Opts) when is_binary(RawKey) ->
     rdb_delete(Ref, RawKey, Opts);
 delete_bag(Ref, EncKey, _, _, Opts) ->
     Sz = byte_size(EncKey),
-    Found = with_iterator(
+    Found = with_rdb_iterator(
               Ref, fun(I) ->
                            do_delete_bag_(Sz, EncKey, i_move(I, EncKey), Ref, I)
                    end),
@@ -869,7 +948,7 @@ delete_obj_bag(Ref, _EncKey, _Obj, RawKey, Opts) when is_binary(RawKey) ->
     rdb_delete(Ref, RawKey, Opts);
 delete_obj_bag(Ref, EncKey, Obj, _, Opts) ->
     Sz = byte_size(EncKey),
-    with_iterator(
+    with_rdb_iterator(
       Ref, fun(I) ->
                    do_del_obj_bag_(Sz, EncKey, i_move(I, EncKey), Obj, Ref, I, Opts)
            end).
@@ -984,7 +1063,7 @@ i_last(I, Ref) ->
             ?EOT
     end.
 
-i_move(#mrdb_iter{i = I}, Where) ->
+i_move(I, Where) ->
     rocksdb:iterator_move(I, Where).
 
 i_next(I, Key, Ref) ->

@@ -186,7 +186,7 @@
 %% CONVENIENCE API
 %% ----------------------------------------------------------------------------
 
--spec register() -> ok.
+-spec register() -> {ok, alias()} | {error, _}.
 %% @equiv register(rocksdb_copies)
 register() ->
     register(default_alias()).
@@ -381,45 +381,13 @@ check_definition_entry(_Tab, _Id, {user_properties, UPs} = P) ->
         Other ->
             throw({error, {invalid_configuration, Other}})
     end,
-    RdbOpts = proplists:get_value(rocksdb_opts, UPs, []),
-    OWE = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
-    OWEStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
-    case valid_mnesia_op(OWE) of
-        true ->
-            case OWEStore of
-                undefined ->
-                    P;
-                V when is_atom(V) ->
-                    P;
-                V ->
-                    throw({error, {invalid_configuration, {on_write_error_store, V}}})
-            end;
-        false ->
-            throw({error, {invalid_configuration, {on_write_error, OWE}}})
-    end;
+    P;
 check_definition_entry(_Tab, _Id, P) ->
     P.
-
-%% create_table(Alias, Tab, Props) ->
-%%     case start_proc(Alias, Tab, Props) of
-%%         {error, already_started} ->
-%%             ok;
-%%         {ok, _Pid} ->
-%%             ok
-%%     end.
 
 create_table(Alias, Tab, Props) ->
     {ok, Pid} = maybe_start_proc(Alias, Tab, Props),
     gen_server:call(Pid, {create_table, Tab, Props}).
-
-    %% case mnesia_rocksdb_admin:create_table(Alias, Tab, Props) of
-    %%     ok when is_atom(Tab) ->
-    %%         ok;
-    %%     ok ->
-    %%         %% mnesia doesn't call `load_table()' for support tables
-    %%         load_table(Alias, 
-            
-    %% %% create_mountpoint(Tab).
 
 load_table(Alias, Tab, LoadReason, Opts) ->
     call(Alias, Tab, {load_table, LoadReason, Opts}).
@@ -667,28 +635,6 @@ update_counter(Alias, Tab, C, Val) when is_integer(Val) ->
         R -> mrdb:update_counter(R, C, Val)
     end.
 
-%% server-side part
-do_update_counter(C, Val, Ref, St) ->
-    Enc = encode_key(C, Ref),
-    case rocksdb:get(Ref, Enc, [{fill_cache, true}]) of
-        {ok, EncVal} ->
-            case decode_val(EncVal, C, Ref) of
-                {_, _, Old} = Rec when is_integer(Old) ->
-                    Res = Old+Val,
-                    return_catch(
-                      fun() ->
-                              Val1 = setelement(3, Rec, Res),
-                              write_result(
-                                mrdb:rdb_put(Ref, Enc, encode_val(Val1, C, Ref), []),
-                                insert, [Ref, C, Val1, []], St)
-                      end);
-                _ ->
-                    badarg
-            end;
-        _ ->
-            badarg
-    end.
-
 %% PRIVATE
 
 %% keys_only iterator: iterator_move/2 returns {ok, EncKey}
@@ -794,7 +740,7 @@ handle_call({write_info, Key, Value}, _From, #st{ref = Ref} = St) ->
     mrdb:write_info(Ref, Key, Value),
     {reply, ok, St};
 handle_call({update_counter, C, Incr}, _From, #st{ref = Ref} = St) ->
-    {reply, do_update_counter(C, Incr, Ref, St), St};
+    {reply, mrdb:update_counter(Ref, C, Incr), St};
 handle_call({insert, Obj}, _From, St) ->
     Res = do_insert(Obj, St),
     {reply, Res, St};
@@ -883,77 +829,11 @@ return_catch(F) when is_function(F, 0) ->
 db_insert(Ref, Obj, Opts, St) ->
     write_result(mrdb:insert(Ref, Obj, Opts), insert, [Ref, Obj, Opts], St).
 
-%% db_write(Ref, List, Opts, St) ->
-%%     write_result(mrdb:write(Ref, List, Opts), write, [Ref, List, Opts], St).
-
 db_delete(Ref, K, Opts, St) ->
     write_result(mrdb:delete(Ref, K, Opts), delete, [Ref, K, Opts], St).
 
 write_result(ok, _, _, _) ->
-    ok;
-write_result(Res, Op, Args, St) ->
-    {Tab, Rpt, OWEStore} = error_info(St),
-    RptOp = rpt_op(Rpt),
-    maybe_store_error(OWEStore, Res, Tab, Op, Args, erlang:system_time(millisecond)),
-    mnesia_lib:RptOp("FAILED rocksdb:~p(" ++ rpt_fmt(Args) ++ ") -> ~p~n",
-                     [Op | Args] ++ [Res]),
-    if Rpt == fatal; Rpt == error ->
-            throw(badarg);
-       true ->
-            ok
-    end.
-
-error_info(#st{tab = Tab, on_write_error = Rpt, on_write_error_store = OWEStore}) ->
-    {Tab, Rpt, OWEStore};
-error_info(#{name := Tab} = R) ->
-    RdbOpts = rdb_opts(R),
-    OWEStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
-    Rpt = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
-    {Tab, Rpt, OWEStore}.
-
-rdb_opts(#{properties := #{user_properties := #{rocksdb_opts := RdbOpts}}}) ->
-    RdbOpts;
-rdb_opts(_) ->
-    [].
-
-maybe_store_error(undefined, _, _, _, _, _) ->
-    ok;
-maybe_store_error(Table, Err, IntTable, insert, [_, Obj, _], Time) ->
-    K = element(2, Obj),
-    insert_error(Table, IntTable, K, Err, Time);
-maybe_store_error(Table, Err, IntTable, delete, [_, K, _], Time) ->
-    insert_error(Table, IntTable, K, Err, Time);
-maybe_store_error(Table, Err, IntTable, write, [_, List, _], Time) ->
-    lists:map(fun
-                  ({put, K, _}) ->
-                      insert_error(Table, IntTable, K, Err, Time);
-                  ({delete, K}) ->
-                      insert_error(Table, IntTable, K, Err, Time)
-              end, List).
-
-insert_error(Table, {Type, _, _}, {_, K}, Err, Time) ->
-    ets:insert(Table, {{Type, K}, Err, Time});
-insert_error(Table, Type, K, Err, Time) when is_atom(Type) ->
-    ets:insert(Table, {{Type, K}, Err, Time}).
-
-rpt_fmt([_|T]) ->
-    lists:append(["~p" | [", ~p" || _ <- T]]).
-
-rpt_op(debug) ->
-    dbg_out;
-rpt_op(Op) ->
-    Op.
-
-valid_mnesia_op(Op) ->
-    if Op==debug
-     ; Op==verbose
-     ; Op==warning
-     ; Op==error
-     ; Op==fatal ->
-           true;
-       true ->
-           false
-    end.
+    ok.
 
 %% ----------------------------------------------------------------------------
 %% COMMON PRIVATE

@@ -12,8 +12,9 @@
         , end_per_testcase/2
         ]).
 
--export([ error_handling/1
-        , mrdb_transactions/1]).
+%% -export([ error_handling/1
+%%         , mrdb_transactions/1]).
+-export([ mrdb_transactions/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -25,14 +26,14 @@ all() ->
 
 groups() ->
     [
-      {all_tests, [sequence], [ {group, mrdb}
-                              , error_handling ]}
+      {all_tests, [sequence], [ {group, mrdb} ]}
+                              %% , error_handling ]}
     , {mrdb, [sequence], [ mrdb_transactions ]}
     ].
 
 
-error_handling(Config) ->
-    mnesia_rocksdb_error_handling:run(Config).
+%% error_handling(Config) ->
+%%     mnesia_rocksdb_error_handling:run(Config).
 
 init_per_suite(Config) ->
     Config.

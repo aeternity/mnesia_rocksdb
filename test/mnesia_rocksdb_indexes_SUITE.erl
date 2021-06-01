@@ -304,19 +304,24 @@ test_index(3, T) ->
 
 index_iterator(_Cfg) ->
     T = ?TAB(it),
-    {atomic, ok} = mnesia:create_table(T, [ {rocksdb_copies,[node()]}
-                                          , {record_name, i}
-                                          , {attributes, [k,a,b]}
-                                          , {index, [a,b]} ]),
-    L2 = [{i,K,a,y} || K <- lists:seq(4,6)],
-    L1 = [{i,K,b,x} || K <- lists:seq(1,3)],
+    Attrs = [ {rdb,[node()]}
+            , {record_name, i}
+            , {attributes, [k,a,b]}
+            , {index, [a,b]} ],
+    {atomic, ok} = mnesia:create_table(T, Attrs),
+    ct:log("created tab T=~p: ~p", [T, Attrs]),
+    L1 = [{i,K,a,y} || K <- lists:seq(4,6)],
+    L2 = [{i,K,b,x} || K <- lists:seq(1,3)],
     true = lists:all(fun(X) -> X == ok end,
                      [mnesia:dirty_write(T, Obj) || Obj <- L1 ++ L2]),
-    ResA = [{b,X} || X <- L1] ++ [{a,Y} || Y <- L2],
-    ResB = [{y,X} || X <- L2] ++ [{x,Y} || Y <- L1],
+    ct:log("inserted ~p", [L1 ++ L2]),
+    ResA = [{a,X} || X <- L1] ++ [{b,Y} || Y <- L2],
+    ResB = [{x,X} || X <- L2] ++ [{y,Y} || Y <- L1],
     F = fun iter_all/1,
     ResA = mrdb_index:with_iterator(T, a, F),
+    ct:log("mrdb_index:with_iterator(T, a, F) -> ~p", [ResA]),
     ResB = mrdb_index:with_iterator(T, b, F),
+    ct:log("mrdb_index:with_iterator(T, b, F) -> ~p", [ResB]),
     ok.
 
 iter_all(I) ->

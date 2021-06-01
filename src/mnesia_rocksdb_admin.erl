@@ -31,10 +31,9 @@
 -include("mnesia_rocksdb_int.hrl").
 
 -record(st, {
-              backends = #{}
-            , standalone = #{}
-            , cf_info = #{}
-            , default_opts = []
+              backends     = #{} :: #{ alias() => backend() }
+            , standalone   = #{} :: #{{alias(), table()} := cf() }
+            , default_opts = []  :: [{atom(), _}]
             }).
 
 -type st() :: #st{}.
@@ -55,16 +54,21 @@
 -type status() :: open | closed | pre_existing.
 -type properties() :: [{atom(), any()}].
 
--type cf() :: #{ db_ref := db_ref()
-               , type   := type()
-               , status := status()
-               , cf_handle := cf_handle() }.
+%% -type cf() :: #{ db_ref := db_ref()
+%%                , type   := type()
+%%                , status := status()
+%%                , cf_handle := cf_handle() }.
+-type cf() :: mrdb:db_ref().
 
 -type req() :: {create_table, table(), properties()}
              | {delete_table, table()}
+             | {load_table, table()}
+             | {related_resources, table()}
              | {get_ref, table()}
              | {add_aliases, [alias()]}
-             | {remove_aliases, [alias()]}.
+             | {remove_aliases, [alias()]}
+             | {prep_close, table()}
+             | {close_table, table()}.
 
 -type reason() :: any().
 -type reply()  :: any().
@@ -76,7 +80,7 @@
 
 -define(PT_KEY(N), {mnesia_rocksdb, N}).
 
--spec ensure_started() -> pid().
+-spec ensure_started() -> ok.
 ensure_started() ->
     case whereis(?MODULE) of
         undefined ->
@@ -181,7 +185,7 @@ write_info_(Ref, Tab, K, V) ->
     EncK = mnesia_rocksdb_lib:encode_key({info,Tab,K}, sext),
     mrdb:rdb_put(Ref, EncK, term_to_binary(V), []).
 
--spec call(alias(), req()) -> no_return() | any().
+-spec call(alias() | [], req()) -> no_return() | any().
 call(Alias, Req) ->
     case gen_server:call(?MODULE, {Alias, Req}) of
         {abort, Reason} ->
@@ -244,8 +248,8 @@ handle_call({[], {add_aliases, Aliases}}, _From, St) ->
     St1 = do_add_aliases(Aliases, St),
     {reply, ok, St1};
 handle_call({[], {remove_aliases, Aliases}}, _From, St) ->
-    {Res, St1} = do_remove_aliases(Aliases, St),
-    {reply, Res, St1};
+    St1 = do_remove_aliases(Aliases, St),
+    {reply, ok, St1};
 handle_call({Alias, Req}, _From, St) ->
     handle_call_for_alias(Alias, Req, St);
 handle_call(_Req, _From, St) ->
@@ -461,7 +465,7 @@ do_create_table_(Alias, Name, Props, #st{backends = Bs} = St) ->
                             {ok, NewCf, St1} = create_table_as_cf(
                                                  Alias, Name, TRec0#{db_ref => DbRef},
                                                  CfI, St),
-                            ok = migrate_standalone_to_cf(MP, Name),
+                            ok = migrate_standalone_to_cf(MP, NewCf),
                             {ok, NewCf, St1};
                         false ->
                             do_open_standalone(Alias, Name, MP, TRec0, St)
@@ -517,7 +521,7 @@ props_to_map({Tab,_,_}, _) ->
 
 semantics({_,index,_}   , _) -> set;
 semantics({_,retainer,_}, _) -> set;
-semantics({admin,_}     , _) -> set;
+%% semantics({admin,_}     , _) -> set;
 semantics(T, #{type := Type}) when is_atom(T) -> Type.
 
 table_exists_as_standalone(Name) ->
@@ -559,9 +563,9 @@ do_open_standalone(CreateIfMissing, Alias, Name, MP, TRec0, #st{standalone = Ts}
 
 load_info(Alias, Name, Cf) ->
     ARef = get_ref({admin, Alias}),
-    mrdb:with_iterator(
+    mrdb:with_rdb_iterator(
       Cf, fun(I) ->
-                  load_info_(rocksdb:iterator_move(I, start), I, ARef, Name)
+                  load_info_(rocksdb:iterator_move(I, first), I, ARef, Name)
           end).
 
 load_info_(Res, I, ARef, Tab) ->
@@ -646,13 +650,13 @@ assert_value_encoding(raw) -> ok;
 assert_value_encoding({value, E}) when E==term; E==raw -> ok;
 assert_value_encoding({object, E}) when E==term; E==raw -> ok;
 assert_value_encoding(_) -> 
-    mrdb:ahort(invalid_value_encoding).
+    mrdb:abort(invalid_value_encoding).
 
 rocksdb_opts_from_trec(TRec) ->
     user_property(rocksdb_opts, TRec, []).
 
-migrate_standalone_to_cf(DbI, MP) ->
-    try migrate_standalone_to_cf_(DbI, MP) of
+migrate_standalone_to_cf(MP, Cf) ->
+    try migrate_standalone_to_cf_(MP, Cf) of
         {ok, #{db_ref := DbRef}} ->
             ok = rocksdb:close(DbRef),
             ok = rocksdb:destroy(MP, []);
@@ -663,17 +667,17 @@ migrate_standalone_to_cf(DbI, MP) ->
             {error, E}
     end.
 
-migrate_standalone_to_cf_(DbI, MP) ->
+migrate_standalone_to_cf_(MP, Cf) ->
     case open_db_(MP, [], [], false) of
         {ok, DbRec0} ->
-            DbRec = DbRec0#{type => standalone},
+            DbRec = maps:merge(Cf, DbRec0#{type => standalone}),
             mrdb:as_batch(
-              DbI,
+              Cf,
               fun(R) ->
-                      mrdb:with_iterator(
+                      mrdb:with_rdb_iterator(
                         DbRec, fun(I) ->
                                        move_to_cf(
-                                         rocksdb:iterator_move(I, ?DATA_START), R, I)
+                                         rocksdb:iterator_move(I, <<?DATA_START>>), R, I)
                                end)
               end),
             {ok, DbRec};

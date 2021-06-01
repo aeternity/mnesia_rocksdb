@@ -29,9 +29,7 @@ put(Ref, K, V, Opts) ->
     rocksdb:put(Ref, K, V, Opts).
 
 write(#{db := Ref, cf := CF}, L, Opts) ->
-    write_as_batch(L, Ref, CF, Opts);    
-write(Ref, L, Opts) ->
-    rocksdb:write(Ref, L, Opts).
+    write_as_batch(L, Ref, CF, Opts).
 
 delete(Ref, K, Opts) ->
     rocksdb:delete(Ref, K, Opts).

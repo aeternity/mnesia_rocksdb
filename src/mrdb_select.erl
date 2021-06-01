@@ -30,7 +30,7 @@ select(Ref, MS, Limit) when is_map(Ref), is_list(MS) ->
 select(Ref, MS, AccKeys, Limit)
   when is_map(Ref), is_list(MS), is_boolean(AccKeys) ->
     Sel = mk_sel(Ref, MS, Limit),
-    mrdb:with_iterator(Ref, fun(I) -> i_select(I, Sel, AccKeys, []) end).
+    mrdb:with_rdb_iterator(Ref, fun(I) -> i_select(I, Sel, AccKeys, []) end).
 
 mk_sel(#{name := Tab} = Ref, MS, Limit) ->
     Keypat = keypat(MS, keypos(Tab), Ref),
@@ -134,9 +134,7 @@ is_wild(A) when is_atom(A) ->
             end;
         _ ->
             false
-    end;
-is_wild(_) ->
-    false.
+    end.
 
 wild_in_body(BodyVars) ->
     intersection(BodyVars, ['$$','$_']) =/= [].
@@ -206,12 +204,13 @@ decr(infinity) ->
 traverse_continue(K, 0, Pfx, MS, _I, #sel{limit = Limit, ref = Ref} = Sel, AccKeys, Acc) ->
     {lists:reverse(Acc),
      fun() ->
-             mrdb:with_iterator(Ref,
-                                fun(NewI) ->
-                                        select_traverse(iterator_next(NewI, K),
-                                                        Limit, Pfx, MS, NewI, Sel,
-                                                        AccKeys, [])
-                                end)
+             mrdb:with_rdb_iterator(
+               Ref,
+               fun(NewI) ->
+                       select_traverse(iterator_next(NewI, K),
+                                       Limit, Pfx, MS, NewI, Sel,
+                                       AccKeys, [])
+               end)
      end};
 traverse_continue(_K, Limit, Pfx, MS, I, Sel, AccKeys, Acc) ->
     select_traverse(rocksdb:iterator_move(I, next), Limit, Pfx, MS, I, Sel, AccKeys, Acc).
