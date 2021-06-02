@@ -20,23 +20,32 @@
 
 -export([start_mnesia/0,
          start_mnesia/1,
+         restart_reset_mnesia/0,
          create_table/1,
          create_table/3,
          trace/2]).
 
+restart_reset_mnesia() ->
+    mnesia:stop(),
+    start_mnesia(reset).
 
 start_mnesia() ->
     start_mnesia(false).
 
 start_mnesia(Mode) ->
     if Mode==reset ->
-            mnesia:delete_schema([node()]),
-            mnesia:create_schema([node()],
-                                 [{backend_types,
-                                   [{rdb,mnesia_rocksdb}]}]);
+            DRes = mnesia:delete_schema([node()]),
+            ct:log("Delete schema: ~p", [DRes]),
+            CRes = mnesia:create_schema([node()],
+                                        [{backend_types,
+                                          [{rdb,mnesia_rocksdb}]}]),
+            ct:log("Create schema: ~p", [CRes]);
        true -> ok
     end,
-    mnesia:start().
+    SRes = mnesia:start(),
+    ct:log("Mnesia start: ~p", [SRes]),
+    true = lists:member(rdb, mnesia_schema:backend_types()),
+    SRes.
 
 create_table(Backend) ->
     create_table(Backend, [k,v], [v]).
