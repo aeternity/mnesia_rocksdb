@@ -197,7 +197,7 @@ open_rocksdb(MPd, Opts, CFs, Retries) ->
 open_db(_, _, _, 0, LastError) ->
     {error, LastError};
 open_db(MPd, Opts, CFs, RetriesLeft, _) ->
-    case rocksdb:open(MPd, Opts, CFs) of
+    case rocksdb:open_optimistic_transaction_db(MPd, Opts, CFs) of
         {ok, _Ref, _CFRefs} = Ok ->
             ?dbg("~p: Open - Rocksdb: ~s~n  -> Ok~n",
                  [self(), MPd, Ok]),
