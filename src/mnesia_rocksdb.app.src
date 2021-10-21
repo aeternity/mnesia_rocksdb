@@ -8,5 +8,5 @@
   {registered, []},
   {mod, {mnesia_rocksdb_app, []}},
   {env, []},
-  {applications, [kernel, stdlib, rocksdb]}
+  {applications, [kernel, stdlib, rocksdb, sext]}
  ]}.
