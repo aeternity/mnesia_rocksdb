@@ -246,8 +246,7 @@ commit_and_pop(Res) ->
 abort_and_pop(Cat, Err) ->
     #{type := Type, handle := H} = pop_ctxt(),
     case Type of
-        %% tx    -> ok = rocksdb:transaction_abort(H);  %% doesn't yet exist
-        tx    -> error(nyi);
+        tx    -> ok = rocksdb:transaction_rollback(H);
         batch -> ok = rocksdb:release_batch(H)
     end,
     case Cat of
