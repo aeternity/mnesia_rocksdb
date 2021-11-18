@@ -1008,7 +1008,7 @@ rdb_get(R, K, Opts) ->
     rdb_get_(R, K, read_opts(R, Opts)).
 
 rdb_get_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
-    rocksdb:transaction_get(TxH, CfH, K);
+    rocksdb:transaction_get(TxH, CfH, K, []);
 rdb_get_(#{db_ref := DbRef, cf_handle := CfH}, K, ROpts) ->
     rocksdb:get(DbRef, CfH, K, ROpts).
 

@@ -49,6 +49,8 @@ init_per_group(_, Config) ->
 end_per_group(_, _Config) ->
     ok.
 
+init_per_testcase(mrdb_transactions, Config) ->
+    Config;
 init_per_testcase(_, Config) ->
     Config.
 
