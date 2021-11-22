@@ -150,18 +150,10 @@
 %% RECORDS
 %% ----------------------------------------------------------------------------
 
--type on_write_error() :: debug | verbose | warning | error | fatal.
--type on_write_error_store() :: atom() | undefined.
-
--define(WRITE_ERR_DEFAULT, verbose).
--define(WRITE_ERR_STORE_DEFAULT, undefined).
-
 -record(st, { ref
             , alias
             , tab
             , type
-            , on_write_error = ?WRITE_ERR_DEFAULT :: on_write_error()
-            , on_write_error_store = ?WRITE_ERR_STORE_DEFAULT :: on_write_error_store()
             }).
 
 -type data_tab() :: atom().
@@ -708,15 +700,11 @@ init({Alias, Tab, Type, _Props, RdbOpts}) ->
           end,
     {ok, update_state(Ref, Alias, Tab, Type, RdbOpts, #st{})}.
 
-update_state(Ref, Alias, Tab, Type, RdbOpts, St) ->
-    OWE = proplists:get_value(on_write_error, RdbOpts, ?WRITE_ERR_DEFAULT),
-    OWEStore = proplists:get_value(on_write_error_store, RdbOpts, ?WRITE_ERR_STORE_DEFAULT),
+update_state(Ref, Alias, Tab, Type, _RdbOpts, St) ->
     St#st{ tab = Tab
          , alias = Alias
          , type = Type
          , ref = maybe_set_ref_mode(Ref)
-         , on_write_error = OWE
-         , on_write_error_store = OWEStore
          }.
 
 maybe_set_ref_mode(Ref) when is_map(Ref) ->
