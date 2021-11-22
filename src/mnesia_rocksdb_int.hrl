@@ -13,3 +13,5 @@
 -else.
 -define(dbg(Fmt, Args), ok).
 -endif.
+
+-define(DEFAULT_RETRIES, 1).

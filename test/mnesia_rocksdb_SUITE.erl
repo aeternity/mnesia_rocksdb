@@ -16,6 +16,7 @@
         , mrdb_abort/1
         , mrdb_two_procs/1
         , mrdb_two_procs_snap/1
+        , mrdb_three_procs/1
         ]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -33,7 +34,8 @@ groups() ->
     , {mrdb, [sequence], [ mrdb_transactions
                          , mrdb_abort
                          , mrdb_two_procs
-                         , mrdb_two_procs_snap ]}
+                         , mrdb_two_procs_snap
+                         , mrdb_three_procs ]}
     ].
 
 
@@ -57,19 +59,12 @@ init_per_group(_, Config) ->
 end_per_group(_, _Config) ->
     ok.
 
-init_per_testcase(mrdb_two_procs_snap, Config) ->
-    %% dbg:tracer(),
-    %% dbg:tpl(mrdb,x),
-    %% dbg:tp(mnesia,create_table,x),
-    %% dbg:p(all,[c]),
+init_per_testcase(mrdb_three_procs, Config) ->
     Config;
 init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    %% dbg:ctpl('_'),
-    %% dbg:ctp('_'),
-    %% dbg:stop(),
     ok.
 
 mrdb_transactions(_Config) ->
@@ -116,27 +111,20 @@ mrdb_two_procs(_Config) ->
     Pre = mrdb:read(R, a),
     F0 = fun() ->
                  ok = mrdb:insert(R, {R, a, 17}),
-                 Parent ! {self(), ready},
-                 receive {Parent, cont} -> ok
-                 after 1000 -> error(inner_timeout)
-                 end
+                 wait_for_parent(Parent, ?LINE)
          end,
     {POther, MRef} = spawn_opt(
                        fun() ->
                                ok = mrdb:activity(tx, rdb, F0)
                        end, [link, monitor]),
-    receive {POther, ready} -> ok after 1000 -> error(timeout) end,
-    Pre = mrdb:read(R, a),
     F1 = fun() ->
-                 POther ! {self(), cont},
+                 go_ahead_other(POther),
                  Pre = mrdb:read(R, a),
-                 receive {'DOWN', MRef, _, _, _} -> ok
-                 after 1000 -> error(monitor_timeout)
-                 end,
+                 await_other_down(MRef),
                  [{R, a, 17}] = mrdb:read(R, a),
                  ok = mrdb:insert(R, {R, a, 18})
          end,
-    try mrdb:activity(tx, rdb, F1)
+    try mrdb:activity({tx, 0}, rdb, F1)
     catch
         error:{error, "Resource busy" ++ _} ->
             ok
@@ -144,6 +132,22 @@ mrdb_two_procs(_Config) ->
     [{R, a, 17}] = mrdb:read(R, a),
     delete_tabs(Created),
     ok.
+
+%% For testing purposes, we use side-effects inside the transactions
+%% to synchronize the concurrent transactions. If a transaction fails due
+%% to "Resource busy", it can re-run, but then mustn't attempt to sync with
+%% the other transaction, which is already committed.
+%%
+%% To achieve this, we rely on the `mrdb:current_context()` function, which gives
+%% us information about which is the current attempt; we only sync on the first
+%% attempt, and ignore the sync ops on retries.
+%%
+-define(IF_FIRST(N, Expr),
+        if N == 1 ->
+                Expr;
+           true ->
+                ok
+        end).
 
 mrdb_two_procs_snap(_Config) ->
     R = ?FUNCTION_NAME,
@@ -155,23 +159,21 @@ mrdb_two_procs_snap(_Config) ->
     PreB = mrdb:read(R, b),
     F0 = fun() ->
                  ok = mrdb:insert(R, {R, a, 17}),
-                 Parent ! {self(), ready},
-                 receive {Parent, cont} -> ok
-                 after 1000 -> error(inner_timeout)
-                 end
+                 wait_for_parent(Parent, ?LINE)
          end,
     {POther, MRef} =
         spawn_opt(fun() ->
                           ok = mrdb:activity(tx, rdb, F0)
                   end, [link, monitor]),
-    receive {POther, ready} -> ok after 1000 -> error(timeout) end,
-    Pre = mrdb:read(R, a),
     F1 = fun() ->
-                 POther ! {self(), cont},
-                 Pre = mrdb:read(R, a),
-                 receive {'DOWN', MRef, _, _, _} -> ok
-                 after 1000 -> error(monitor_timeout)
-                 end,
+                 Att = get_attempt(),
+                 go_ahead_other(Att, POther),
+                 ARes = mrdb:read(R, a),
+                 ARes = case Att of
+                            1 -> Pre;
+                            2 -> [{R, a, 17}]
+                        end,
+                 await_other_down(Att, MRef),
                  PreB = mrdb:read(R, b),
                  mrdb:insert(R, {R, b, 18}),
                  1477
@@ -181,6 +183,89 @@ mrdb_two_procs_snap(_Config) ->
     [{R, b, 18}] = mrdb:read(R, b),
     delete_tabs(Created),
     ok.
+
+%% We spawn two helper processes, making it 3 transactions, with the one
+%% in the parent process. P2 writes to key `a`, which the other two try to read.
+%% We make sure that P2 commits before finishing the other two, and P3 and the 
+%% main thread sync, so as to maximize the contention for the retry lock.
+mrdb_three_procs(_Config) ->
+    R = ?FUNCTION_NAME,
+    Parent = self(),
+    Created = create_tabs([{R, []}]),
+    dbg:tpl(mnesia_rocksdb_lib,x),
+    ok = mrdb:insert(R, {R, a, 1}),
+    F0 = fun() ->
+                 ok = mrdb:insert(R, {R, a, 47}),
+                 wait_for_parent(Parent, ?LINE)
+         end,
+    {P2, MRef2} =
+        spawn_opt(fun() ->
+                          ok = mrdb:activity(snap_tx, rdb, F0)
+                  end, [link, monitor]),
+    F1 = fun() ->
+                 wait_for_parent(Parent, ?LINE),
+                 ReadRes = mrdb:read(R, a),
+                 ok = mrdb:insert(R, {R, b, ReadRes}),
+                 wait_for_parent(Parent, ?LINE)
+         end,
+    {P3, _MRef3} =
+        spawn_opt(fun() ->
+                          ok = mrdb:activity(snap_tx, rdb, F1)
+                  end, [link, monitor]),
+    ok = mrdb:activity(snap_tx, rdb,
+                       fun() ->
+                               Att = get_attempt(),
+                               go_ahead_other(Att, P2),
+                               go_ahead_other(Att, P3),
+                               ReadRes = mrdb:read(R, a),
+                               await_other_down(Att, MRef2),
+                               ok = mrdb:insert(R, {R, c, ReadRes}),
+                               go_ahead_other(Att, P3)
+                       end),
+    ct:log("b: ~p", [mrdb:read(R, b)]),
+    ct:log("c: ~p", [mrdb:read(R, c)]),
+    delete_tabs(Created),
+    ok.
+
+wait_for_parent(Parent, L) ->
+    wait_for_parent(Parent, 1000, L).
+
+wait_for_parent(Parent, Timeout, L) ->
+    Parent ! {self(), ready},
+    receive
+        {Parent, cont} -> ok
+    after Timeout ->
+            error({inner_timeout, L})
+    end.
+
+go_ahead_other(POther) ->
+    go_ahead_other(get_attempt(), POther).
+
+go_ahead_other(Att, POther) ->
+    go_ahead_other(Att, POther, 1000).
+
+go_ahead_other(Att, POther, Timeout) ->
+    ?IF_FIRST(Att, go_ahead_other_(POther, Timeout)).
+
+go_ahead_other_(POther, Timeout) ->
+    receive
+        {POther, ready} ->
+            POther ! {self(), cont}
+    after Timeout ->
+            error(go_ahead_timeout)
+    end.
+
+await_other_down(MRef) ->
+    await_other_down(get_attempt(), MRef).
+
+await_other_down(Att, MRef) ->
+    ?IF_FIRST(Att, receive {'DOWN', MRef, _, _, _} -> ok
+                   after 1000 -> error(monitor_timeout)
+                   end).
+
+get_attempt() ->
+    #{attempt := Attempt} = mrdb:current_context(),
+    Attempt.
 
 create_tabs(Tabs) ->
     lists:map(fun create_tab/1, Tabs).

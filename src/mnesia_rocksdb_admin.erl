@@ -30,6 +30,7 @@
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
 
+
 -record(st, {
               backends     = #{} :: #{ alias() => backend() }
             , standalone   = #{} :: #{{alias(), table()} := cf() }
@@ -49,9 +50,9 @@
                     , cf_info := #{ table() := cf() }
                     }.
 -type db_ref() :: rocksdb:db_handle().
--type cf_handle() :: rocksdb:cf_handle().
--type type() :: column_family | standalone.
--type status() :: open | closed | pre_existing.
+%% -type cf_handle() :: rocksdb:cf_handle().
+%% -type type() :: column_family | standalone.
+%% -type status() :: open | closed | pre_existing.
 -type properties() :: [{atom(), any()}].
 
 %% -type cf() :: #{ db_ref := db_ref()
@@ -195,6 +196,7 @@ call(Alias, Req) ->
     end.
 
 start_link() ->
+    mrdb_mutex:ensure_tab(),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->

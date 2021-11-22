@@ -45,9 +45,6 @@ write_as_batch(L, Ref, CF, Opts) ->
       end, L),
     rocksdb:write_batch(Ref, Batch, Opts).
 
-
-
-
 create_mountpoint(Tab) ->
     MPd = data_mountpoint(Tab),
     case filelib:is_dir(MPd) of

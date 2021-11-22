@@ -68,7 +68,8 @@
         , read_info/2
         ]).
 
--export([activity/3]).
+-export([ activity/3
+        , current_context/0]).
 
 -export([abort/1]).
 
@@ -94,6 +95,7 @@
               ]).
 
 -include("mnesia_rocksdb.hrl").
+-include("mnesia_rocksdb_int.hrl").
 
 -type tab_name()  :: atom().
 -type alias()     :: atom().
@@ -204,35 +206,68 @@ release_snapshot(SHandle) ->
 -spec activity(activity_type(), alias(), fun( () -> Res )) -> Res.
 activity(Type, Alias, F) ->
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
-    case TxType = tx_type(Type) of
-        tx ->
-            {ok, TxH} = rocksdb:transaction(DbRef, []),
-            push_ctxt(#{ type   => TxType
-                       , alias  => Alias
-                       , db_ref => DbRef
-                       , handle => TxH });
-        snap_tx ->
-            {ok, TxH} = rocksdb:transaction(DbRef, []),
-            {ok, SH} = rocksdb:snapshot(DbRef),
-            push_ctxt(#{ type   => tx
-                       , alias  => Alias
-                       , db_ref => DbRef
-                       , handle => TxH
-                       , snapshot => SH });
-        batch ->
-            {ok, Batch} = rocksdb:batch(),
-            push_ctxt(#{ type   => TxType
-                       , alias  => Alias
-                       , db_ref => DbRef
-                       , handle => Batch })
-    end,
-    try F() of
+    Ctxt = case tx_type(Type) of
+               {tx, Retries} ->
+                   {ok, TxH} = rocksdb:transaction(DbRef, []),
+                   #{ type   => tx
+                    , alias  => Alias
+                    , db_ref => DbRef
+                    , attempt => 1
+                    , retries => Retries
+                    , handle => TxH };
+               {snap_tx, Retries} ->
+                   {ok, TxH} = rocksdb:transaction(DbRef, []),
+                   {ok, SH} = rocksdb:snapshot(DbRef),
+                   #{ type   => tx
+                    , alias  => Alias
+                    , db_ref => DbRef
+                    , attempt => 1
+                    , retries => Retries
+                    , handle => TxH
+                    , snapshot => SH };
+               batch ->
+                   {ok, Batch} = rocksdb:batch(),
+                   #{ type   => batch
+                    , alias  => Alias
+                    , db_ref => DbRef
+                    , handle => Batch }
+           end,
+    do_activity(F, Alias, Ctxt, false).
+
+do_activity(F, Alias, Ctxt, WithLock) ->
+    try run_f(F, Ctxt, WithLock, Alias) of
         Res ->
-            commit_and_pop(Res)
+            try commit_and_pop(Res)
+            catch
+                throw:{?MODULE, busy} ->
+                    do_activity(F, Alias, Ctxt, true)
+            end
     catch
         Cat:Err when Cat==error;
                      Cat==exit ->
             abort_and_pop(Cat, Err)
+    end.
+
+run_f(F, Ctxt, false, _) ->
+    push_ctxt(Ctxt),
+    F();
+run_f(F, Ctxt, true, Alias) ->
+    mrdb_mutex:do(
+      Alias,
+      fun() ->
+              push_ctxt(incr_attempt(Ctxt)),
+              F()
+      end).
+
+incr_attempt(#{ type := tx, db_ref := DbRef, attempt := A } = C) ->
+    {ok, TxH} = rocksdb:transaction(DbRef, []),
+    C1 = C#{ attempt := A+1, handle := TxH },
+    case maps:is_key(snapshot, C) of
+        true ->
+            {ok, SH} = rocksdb:snapshot(DbRef),
+            C1#{snapshot := SH};
+        false ->
+            C1
     end.
 
 ctxt() -> {?MODULE, ctxt}.
@@ -250,29 +285,63 @@ pop_ctxt() ->
     K = ctxt(),
     case get(K) of
         undefined -> error(no_ctxt);
-        [C]       -> erase(K) , C;
-        [H|T]     -> put(K, T), H
+        [C]       -> erase(K) , maybe_release_snapshot(C);
+        [H|T]     -> put(K, T), maybe_release_snapshot(H)
     end.
 
-tx_type(T) when T==tx; T==snap_tx; T==batch -> T;
+maybe_release_snapshot(#{snapshot := SH} = C) ->
+    try rocksdb:release_snapshot(SH)
+    catch
+        error:_ ->
+            ok
+    end,
+    C;
+maybe_release_snapshot(C) ->
+    C.
+
+current_context() ->
+    case get(ctxt()) of
+        [C|_] ->
+            C;
+        undefined ->
+            undefined
+    end.
+
+tx_type(batch) -> batch;
+tx_type(T) when T==tx; T==snap_tx -> {T, ?DEFAULT_RETRIES};
+tx_type({tx, Retries} = T) when is_integer(Retries),
+                                Retries >= 0 -> T;
+tx_type({snap_tx, Retries} = T) when is_integer(Retries),
+                                     Retries >= 0 -> T;
 tx_type(T) ->
     case T of
-        transaction      -> tx;
-        {transaction,_}  -> tx;
-        sync_transaction -> tx;
-        snapshot_transaction -> snap_tx;
-        async_dirty      -> batch;
-        sync_dirty       -> batch;
+        transaction              -> {tx, ?DEFAULT_RETRIES};
+        {transaction, Retries}   -> {tx, Retries};
+        sync_transaction         -> {tx, ?DEFAULT_RETRIES};
+        snapshot_transaction     -> {snap_tx, ?DEFAULT_RETRIES};
+        async_dirty -> batch;
+        sync_dirty  -> batch;
+        {snapshot_transaction, Retries} when is_integer(Retries),
+                                             Retries >= 0 ->
+            {snap_tx, Retries};
         _ -> abort(invalid_activity_type)
     end.
 
 commit_and_pop(Res) ->
-    #{type := Type, handle := H, db_ref := DbRef} = pop_ctxt(),
+    #{type := Type, handle := H, db_ref := DbRef} = Ctxt = pop_ctxt(),
     case Type of
         tx ->
             case rocksdb:transaction_commit(H) of
                 ok ->
                     Res;
+                {error, {error, "Resource busy" ++ _ = Busy}} ->
+                    case Ctxt of
+                        #{retries := Retries, attempt := Att}
+                          when Att =< Retries ->
+                            throw({?MODULE, busy});
+                        _ ->
+                            error({error, Busy})
+                    end;
                 {error, Reason} ->
                     error(Reason)
             end;
