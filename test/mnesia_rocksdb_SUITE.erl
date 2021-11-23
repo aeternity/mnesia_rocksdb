@@ -120,7 +120,7 @@ mrdb_two_procs(_Config) ->
     F1 = fun() ->
                  go_ahead_other(POther),
                  Pre = mrdb:read(R, a),
-                 await_other_down(MRef),
+                 await_other_down(POther, MRef),
                  [{R, a, 17}] = mrdb:read(R, a),
                  ok = mrdb:insert(R, {R, a, 18})
          end,
@@ -173,7 +173,7 @@ mrdb_two_procs_snap(_Config) ->
                             1 -> Pre;
                             2 -> [{R, a, 17}]
                         end,
-                 await_other_down(Att, MRef),
+                 await_other_down(POther, MRef),
                  PreB = mrdb:read(R, b),
                  mrdb:insert(R, {R, b, 18}),
                  1477
@@ -203,12 +203,14 @@ mrdb_three_procs(_Config) ->
                           ok = mrdb:activity(snap_tx, rdb, F0)
                   end, [link, monitor]),
     F1 = fun() ->
-                 wait_for_parent(Parent, ?LINE),
+                 Att = get_attempt(),
+                 wait_for_parent(Att, Parent, ?LINE),
                  ReadRes = mrdb:read(R, a),
+                 ct:log("p3(~p): ReadRes = ~p", [Att, ReadRes]),
                  ok = mrdb:insert(R, {R, b, ReadRes}),
-                 wait_for_parent(Parent, ?LINE)
+                 wait_for_parent(Att, Parent, ?LINE)
          end,
-    {P3, _MRef3} =
+    {P3, MRef3} =
         spawn_opt(fun() ->
                           ok = mrdb:activity(snap_tx, rdb, F1)
                   end, [link, monitor]),
@@ -218,25 +220,32 @@ mrdb_three_procs(_Config) ->
                                go_ahead_other(Att, P2),
                                go_ahead_other(Att, P3),
                                ReadRes = mrdb:read(R, a),
-                               await_other_down(Att, MRef2),
+                               ct:log("main(~p): ReadRes = ~p", [Att, ReadRes]),
+                               await_other_down(P2, MRef2),
                                ok = mrdb:insert(R, {R, c, ReadRes}),
                                go_ahead_other(Att, P3)
                        end),
+    await_other_down(P3, MRef3),
     ct:log("b: ~p", [mrdb:read(R, b)]),
     ct:log("c: ~p", [mrdb:read(R, c)]),
     delete_tabs(Created),
     ok.
 
 wait_for_parent(Parent, L) ->
-    wait_for_parent(Parent, 1000, L).
+    wait_for_parent(get_attempt(), Parent, 1000, L).
 
-wait_for_parent(Parent, Timeout, L) ->
+wait_for_parent(Att, Parent, L) ->
+    wait_for_parent(Att, Parent, 1000, L).
+
+wait_for_parent(1, Parent, Timeout, L) ->
     Parent ! {self(), ready},
     receive
         {Parent, cont} -> ok
     after Timeout ->
             error({inner_timeout, L})
-    end.
+    end;
+wait_for_parent(_, _, _, _) ->
+    ok.
 
 go_ahead_other(POther) ->
     go_ahead_other(get_attempt(), POther).
@@ -255,13 +264,14 @@ go_ahead_other_(POther, Timeout) ->
             error(go_ahead_timeout)
     end.
 
-await_other_down(MRef) ->
-    await_other_down(get_attempt(), MRef).
-
-await_other_down(Att, MRef) ->
-    ?IF_FIRST(Att, receive {'DOWN', MRef, _, _, _} -> ok
-                   after 1000 -> error(monitor_timeout)
-                   end).
+await_other_down(P, MRef) ->
+    case is_process_alive(P) of
+        false -> ok;
+        true ->
+            receive {'DOWN', MRef, _, _, _} -> ok
+            after 1000 -> error(monitor_timeout)
+            end
+    end.
 
 get_attempt() ->
     #{attempt := Attempt} = mrdb:current_context(),
