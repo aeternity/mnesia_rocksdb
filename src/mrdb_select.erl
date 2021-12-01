@@ -63,6 +63,8 @@ fold(Ref, Fun, Acc, MS, Limit) ->
 
 fold_('$end_of_table', _, Acc) ->
     Acc;
+fold_(L, Fun, Acc) when is_list(L) ->
+    lists:foldl(Fun, Acc, L);
 fold_({L, Cont}, Fun, Acc) ->
     fold_(select(Cont), Fun, lists:foldl(Fun, Acc, L)).
 

@@ -96,6 +96,7 @@
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
+-include_lib("hut/include/hut.hrl").
 
 -type tab_name()  :: atom().
 -type alias()     :: atom().
@@ -205,6 +206,7 @@ release_snapshot(SHandle) ->
 
 -spec activity(activity_type(), alias(), fun( () -> Res )) -> Res.
 activity(Type, Alias, F) ->
+    ?log(debug, "Type = ~p, Alias = ~p, F = ~p", [Type, Alias, F]),
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
     Ctxt = case tx_type(Type) of
                {tx, Retries} ->
@@ -235,6 +237,7 @@ activity(Type, Alias, F) ->
     do_activity(F, Alias, Ctxt, false).
 
 do_activity(F, Alias, Ctxt, WithLock) ->
+    ?log(debug, "Alias = ~p", [Alias]),
     try run_f(F, Ctxt, WithLock, Alias) of
         Res ->
             try commit_and_pop(Res)
@@ -243,8 +246,8 @@ do_activity(F, Alias, Ctxt, WithLock) ->
                     do_activity(F, Alias, Ctxt, true)
             end
     catch
-        Cat:Err when Cat==error;
-                     Cat==exit ->
+        Cat:Err:ST when Cat==error; Cat==exit ->
+            ?log(debug, "Will abort - ~p:~p:~p", [Cat, Err, ST]),
             abort_and_pop(Cat, Err)
     end.
 
@@ -328,6 +331,7 @@ tx_type(T) ->
     end.
 
 commit_and_pop(Res) ->
+    ?log(debug, "committing", []),
     #{type := Type, handle := H, db_ref := DbRef} = Ctxt = pop_ctxt(),
     case Type of
         tx ->
@@ -354,6 +358,7 @@ commit_and_pop(Res) ->
     end.
 
 abort_and_pop(Cat, Err) ->
+    ?log(debug, "aborting", []),
     #{type := Type, handle := H} = pop_ctxt(),
     case Type of
         tx    -> ok = rocksdb:transaction_rollback(H);

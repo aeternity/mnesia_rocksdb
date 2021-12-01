@@ -29,7 +29,7 @@
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
-
+-include_lib("hut/include/hut.hrl").
 
 -record(st, {
               backends     = #{} :: #{ alias() => backend() }
@@ -265,9 +265,10 @@ handle_cast(_Msg, St) ->
 handle_info(_Msg, St) ->
     {noreply, St}.
 
-terminate(shutdown, St) ->
+terminate(_, St) ->
     close_all(St),
     ok.
+
 
 code_change(_FromVsn, St, _Extra) ->
     {ok, St}.
@@ -438,14 +439,15 @@ do_create_table(Alias, Name, Props, Backend, St) ->
     case find_cf(Alias, Name, Backend, St) of
         {ok, #{status := open}} ->
             {error, exists};
-        _ ->
+        Other ->
+            ?log(debug, "~p/~p not open: ~p", [Alias, Name, Other]),
             do_create_table_(Alias, Name, Props, St)
     end.
 
 do_create_table_(Alias, Name, Props, #st{backends = Bs} = St) ->
     case maps:find(Alias, Bs) of
         {ok, #{cf_info := CfI, db_ref := DbRef}} ->
-            %% io:fwrite("do_create ~p: CfI = ~p~n", [Name, CfI]),
+            ?log(debug, "do_create ~p: CfI = ~p~n", [Name, CfI]),
             Standalone = rdb_opt_standalone(Props),
             PMap = props_to_map(Name, Props),
             TRec0 = maybe_map_retainer(
@@ -460,21 +462,26 @@ do_create_table_(Alias, Name, Props, #st{backends = Bs} = St) ->
                            , status      => open })), St),
             case {table_exists_as_standalone(Name), Standalone} of
                 {{true, MP}, true} ->
+                    ?log(debug, "table exists as standalone (~p)", [Name]),
                     do_open_standalone(Alias, Name, MP, TRec0, St);
                 {{true, MP}, false} ->
                     case auto_migrate_to_cf(Name) of
                         true ->
+                            ?log(debug, "auto-migrate to cf (~p)", [Name]),
                             {ok, NewCf, St1} = create_table_as_cf(
                                                  Alias, Name, TRec0#{db_ref => DbRef},
                                                  CfI, St),
                             ok = migrate_standalone_to_cf(MP, NewCf),
                             {ok, NewCf, St1};
                         false ->
+                            ?log(debug, "Don't migrate ~p", [Name]),
                             do_open_standalone(Alias, Name, MP, TRec0, St)
                     end;
                 {false, true} ->
+                    ?log(debug, "Table ~p doesn't exist standalone - create", [Name]),
                     create_table_as_standalone(Alias, Name, TRec0, St);
                 {false, false} ->
+                    ?log(debug, "Create ~p as CF", [Name]),
                     create_table_as_cf(Alias, Name, TRec0#{db_ref => DbRef}, CfI, St)
             end;
         error ->
@@ -698,8 +705,9 @@ create_table_as_cf(Alias, Name, #{db_ref := DbRef} = R, CfI, St) ->
     case maps:find(Name, CfI) of
         {ok, #{cf_handle := _, status := pre_existing} = Cf0} ->
             %% Column family exists
-            Cf1 = check_version_and_encoding(maps:merge(Cf0, R)),
-            {ok, update_cf(Alias, Name, Cf1, St)};
+            ?log(debug, "CF ~p pre-existing", [Name]),
+            R1 = check_version_and_encoding(maps:merge(Cf0, R)),
+            {ok, R1, update_cf(Alias, Name, R1, St)};
         error ->
             case rocksdb:create_column_family(DbRef, CfName, cfopts()) of
                 {ok, CfH} ->

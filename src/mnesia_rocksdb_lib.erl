@@ -21,7 +21,7 @@
         ]).
 
 -include("mnesia_rocksdb.hrl").
--include("mnesia_rocksdb_int.hrl").
+-include_lib("hut/include/hut.hrl").
 
 put(#{db := Ref, cf := CF}, K, V, Opts) ->
     rocksdb:put(Ref, CF, K, V, Opts);
@@ -196,8 +196,7 @@ open_db(_, _, _, 0, LastError) ->
 open_db(MPd, Opts, CFs, RetriesLeft, _) ->
     case rocksdb:open_optimistic_transaction_db(MPd, Opts, CFs) of
         {ok, _Ref, _CFRefs} = Ok ->
-            ?dbg("~p: Open - Rocksdb: ~s~n  -> Ok~n",
-                 [self(), MPd, Ok]),
+            ?log(debug, "Open - Rocksdb: ~s-> ~p", [MPd, Ok]),
             Ok;
         %% Check specifically for lock error, this can be caused if
         %% a crashed mnesia takes some time to flush rocksdb information
@@ -207,9 +206,8 @@ open_db(MPd, Opts, CFs, RetriesLeft, _) ->
             case lists:prefix("IO error: lock ", OpenErr) of
                 true ->
                     SleepFor = get_retry_delay(),
-                    ?dbg("~p: Open - Rocksdb backend retrying ~p in ~p ms"
-                         " after error ~s\n",
-                         [self(), MPd, SleepFor, OpenErr]),
+                    ?log(debug, ("Open - Rocksdb backend retrying ~p in ~p ms"
+                                 " after error ~s"), [MPd, SleepFor, OpenErr]),
                     timer:sleep(SleepFor),
                     open_db(MPd, Opts, CFs, RetriesLeft - 1, Reason);
                 false ->
