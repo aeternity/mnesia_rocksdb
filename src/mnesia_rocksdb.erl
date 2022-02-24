@@ -66,6 +66,10 @@
          add_aliases/1,
          remove_aliases/1]).
 
+%% convenience
+-export([ create_schema/1
+        , create_schema/2 ]).
+
 %% schema level callbacks
 -export([ semantics/2
         , check_definition/4
@@ -100,6 +104,16 @@
         , slot/3
         , update_counter/4 ]).
 
+-export([ encode_key/1     %% (term())
+        , encode_key/2     %% (term(), Meta::map())
+        , encode_val/1     %% (term())
+        , encode_val/2     %% (term(), Meta::map())
+        , decode_key/1     %% (binary())
+        , decode_key/2     %% (binary(), Meta::map())
+        , decode_val/1     %% (binary())
+        , decode_val/3     %% (binary(), Key::term(), Meta::map())
+        ]).
+
 %% Index consistency
 -export([index_is_consistent/3,
          is_index_consistent/2]).
@@ -132,11 +146,11 @@
 
 -import(mnesia_rocksdb_admin, [ get_ref/1 ]).
 
--import(mnesia_rocksdb_lib, [ encode_key/2
-                            , encode_val/3
-                            , decode_key/2
-                            , decode_val/3
-                            ]).
+%% -import(mnesia_rocksdb_lib, [ encode_key/2
+%%                             , encode_val/3
+%%                             , decode_key/2
+%%                             , decode_val/3
+%%                             ]).
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
@@ -203,6 +217,31 @@ register(Alias) ->
 
 default_alias() ->
     rocksdb_copies.
+
+
+encode_key(Key) ->
+    mnesia_rocksdb_lib:encode_key(Key, sext).
+
+encode_key(Key, Metadata) when is_map(Metadata) ->
+    mnesia_rocksdb_lib:encode_key(Key, Metadata).
+
+encode_val(Val) ->
+    mnesia_rocksdb_lib:encode_val(Val).
+
+encode_val(Val, Metadata) when is_map(Metadata) ->
+    mnesia_rocksdb_lib:encode_val(Val, Metadata).
+
+decode_key(Key) ->
+    mnesia_rocksdb_lib:decode_key(Key, sext).
+
+decode_key(Key, Metadata) when is_map(Metadata) ->
+    mensia_rocksdb_lib:decode_key(Key, Metadata).
+
+decode_val(Val) ->
+    mnesia_rocksdb_lib:decode_val(Val).
+
+decode_val(Val, Key, Metadata) when is_map(Metadata); is_reference(Metadata) ->
+    mnesia_rocksdb_lib:decode_val(Val, Key, Metadata).
 
 %% ----------------------------------------------------------------------------
 %% DEBUG API
@@ -280,6 +319,15 @@ add_aliases(Aliases) ->
 remove_aliases(Aliases) ->
     mnesia_rocksdb_admin:remove_aliases(Aliases).
 
+%% Convenience function for creating a schema with this plugin
+%% already registered (default aliases: [rocksdb_copies]).
+create_schema(Nodes) ->
+    create_schema(Nodes, [rocksdb_copies]).
+
+create_schema(Nodes, Aliases) when is_list(Nodes), is_list(Aliases) ->
+    mnesia:create_schema(Nodes, [{backend_types,
+                                  [{A, ?MODULE} || A <- Aliases]}]).
+
 %% schema level callbacks
 
 %% This function is used to determine what the plugin supports
@@ -348,11 +396,28 @@ check_definition(Alias, Tab, Nodes, Props) ->
     Id = {Alias, Nodes},
     try
         Props1 = lists:map(fun(E) -> check_definition_entry(Tab, Id, E) end, Props),
-        {ok, Props1}
+        Props2 = check_encoding(Tab, Props1),
+        {ok, Props2}
     catch
         throw:Error ->
             Error
     end.
+
+check_encoding(Tab, Props) ->
+    {_, Type} = lists:keyfind(type, 1, Props),
+    {_, Attrs} = lists:keyfind(attributes, 1, Props),
+    {_, UserProps} = lists:keyfind(user_properties, 1, Props),
+    Enc = proplists:get_value(
+            mrdb_encoding, UserProps,
+            mnesia_rocksdb_lib:default_encoding(Tab, Type, Attrs)),
+    
+    Enc1 = case mnesia_rocksdb_lib:check_encoding(Enc, Attrs) of
+               {ok, Res} -> Res;
+               EncErr    -> throw(EncErr)
+           end,
+    UserProps1 = lists:keystore(mrdb_encoding, 1, UserProps,
+                                {mrdb_encoding, Enc1}),
+    lists:keyreplace(user_properties, 1, Props, {user_properties, UserProps1}).
 
 check_definition_entry(_Tab, _Id, {type, T} = P) when T==set; T==ordered_set; T==bag ->
     P;
@@ -379,7 +444,7 @@ check_definition_entry(_Tab, _Id, P) ->
 
 create_table(Alias, Tab, Props) ->
     {ok, Pid} = maybe_start_proc(Alias, Tab, Props),
-    gen_server:call(Pid, {create_table, Tab, Props}).
+    do_call(Pid, {create_table, Tab, Props}).
 
 load_table(Alias, Tab, LoadReason, Opts) ->
     call(Alias, Tab, {load_table, LoadReason, Opts}).
@@ -641,10 +706,18 @@ update_counter(Alias, Tab, C, Val) when is_integer(Val) ->
 
 %% record and key validation
 
-validate_key(_Alias, _Tab, RecName, Arity, Type, _Key) ->
+validate_key(_Alias, Tab, RecName, Arity, Type, Key) ->
+    case mnesia_rocksdb_lib:valid_key_type(get_ref(Tab), Key) of
+        true  -> ok;
+        false -> mnesia:abort({bad_type, Key})
+    end,
     {RecName, Arity, Type}.
 
-validate_record(_Alias, _Tab, RecName, Arity, Type, _Obj) ->
+validate_record(_Alias, Tab, RecName, Arity, Type, Obj) ->
+    case mnesia_rocksdb_lib:valid_obj_type(get_ref(Tab), Obj) of
+        true  -> ok;
+        false -> mnesia:abort({bad_type, Obj})
+    end,
     {RecName, Arity, Type}.
 
 %% file extension callbacks
@@ -714,11 +787,14 @@ maybe_set_ref_mode(Ref) ->
 
 handle_call({create_table, Tab, Props}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
-    case mnesia_rocksdb_admin:create_table(Alias, Tab, Props) of
+    try mnesia_rocksdb_admin:create_table(Alias, Tab, Props) of
         {ok, Ref} ->
             {reply, ok, St#st{ref = maybe_set_ref_mode(Ref)}};
         Other ->
             {reply, Other, St}
+    catch
+        exit:{aborted, Error} ->
+            {reply, {aborted, Error}, St}
     end;
 handle_call({load_table, _LoadReason, _Opts}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
@@ -742,8 +818,11 @@ handle_call(close_table, _From, #st{alias = Alias, tab = Tab} = St) ->
     _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
     {reply, ok, St#st{ref = undefined}};
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
-    ok = mnesia_rocksdb_admin:delete_table(Alias, Tab),
-    {stop, normal, ok, St#st{ref = undefined}}.
+    Res = case mnesia_rocksdb_admin:delete_table(Alias, Tab) of
+              ok -> ok;
+              {error, not_found} -> ok
+          end,
+    {stop, normal, Res, St#st{ref = undefined}}.
 
 handle_cast(_, St) ->
     {noreply, St}.
@@ -775,12 +854,15 @@ opt_call(Alias, Tab, Req) ->
         Pid when is_pid(Pid) ->
             ?dbg("proc_name(~p, ~p): ~p; Pid = ~p~n",
                  [Alias, Tab, ProcName, Pid]),
-            {ok, gen_server:call(Pid, Req, infinity)}
+            {ok, do_call(Pid, Req)}
     end.
 
 call(Alias, Tab, Req) ->
     ProcName = proc_name(Alias, Tab),
-    case gen_server:call(ProcName, Req, infinity) of
+    do_call(ProcName, Req).
+
+do_call(P, Req) ->
+    case gen_server:call(P, Req, infinity) of
         badarg ->
             mnesia:abort(badarg);
         {abort, _} = Err ->

@@ -64,8 +64,10 @@
         , select/2       , select/3
         , select/1
         , fold/4         , fold/5
+        , rdb_fold/4     , rdb_fold/5
         , write_info/3
         , read_info/2
+        , read_info/1
         ]).
 
 -export([ activity/3
@@ -74,10 +76,13 @@
 -export([abort/1]).
 
 %% Low-level access wrappers.
--export([ rdb_put/4
-        , rdb_get/3
-        , rdb_delete/3
-        , rdb_iterator/2 ]).
+-export([ rdb_put/3,      rdb_put/4
+        , rdb_get/2,      rdb_get/3
+        , rdb_delete/2,   rdb_delete/3
+        , rdb_iterator/1, rdb_iterator/2 ]).
+
+%% For use of trace_runner
+-export([ patterns/0 ]).
 
 -import(mnesia_rocksdb_lib, [ keypos/1
                             , encode_key/1
@@ -113,12 +118,12 @@
 %% activity type 'ets' makes no sense in this context
 -type mnesia_activity_type() :: transaction
                               | sync_transaction
-                              | {transaction, retries()}
-                              | {sync_transaction, retries()}
                               | async_dirty
                               | sync_dirty.
 
--type mrdb_activity_type() :: tx | snap_tx | batch.
+-type tx_options() :: #{ retries => retries()
+                       , no_snapshot => boolean() }.
+-type mrdb_activity_type() :: tx | {tx, tx_options()} | batch.
 
 -type activity_type() :: mrdb_activity_type() | mnesia_activity_type().
 
@@ -195,6 +200,11 @@
 
 -type mrdb_iterator() :: #mrdb_iter{}.
 
+patterns() ->
+    [{?MODULE, F, A, []} || {F, A} <- ?MODULE:module_info(exports),
+                            F =/= module_info andalso
+                            F =/= patterns].
+
 -spec snapshot(alias()) -> {ok, snapshot_handle()} | error().
 snapshot(Alias) ->
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
@@ -209,26 +219,14 @@ activity(Type, Alias, F) ->
     ?log(debug, "Type = ~p, Alias = ~p, F = ~p", [Type, Alias, F]),
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
     Ctxt = case tx_type(Type) of
-               {tx, Retries} ->
-                   {ok, TxH} = rocksdb:transaction(DbRef, []),
-                   #{ type   => tx
-                    , alias  => Alias
-                    , db_ref => DbRef
-                    , attempt => 1
-                    , retries => Retries
-                    , handle => TxH };
-               {snap_tx, Retries} ->
-                   {ok, TxH} = rocksdb:transaction(DbRef, []),
-                   {ok, SH} = rocksdb:snapshot(DbRef),
-                   #{ type   => tx
-                    , alias  => Alias
-                    , db_ref => DbRef
-                    , attempt => 1
-                    , retries => Retries
-                    , handle => TxH
-                    , snapshot => SH };
+               {tx, TxOpts} ->
+                   TxCtxt = new_tx_context(TxOpts, DbRef),
+                   maps:merge(
+                     #{ type   => tx
+                      , alias  => Alias
+                      , db_ref => DbRef }, TxCtxt);
                batch ->
-                   {ok, Batch} = rocksdb:batch(),
+                   {ok, Batch} = rdb_batch(),
                    #{ type   => batch
                     , alias  => Alias
                     , db_ref => DbRef
@@ -263,7 +261,7 @@ run_f(F, Ctxt, true, Alias) ->
       end).
 
 incr_attempt(#{ type := tx, db_ref := DbRef, attempt := A } = C) ->
-    {ok, TxH} = rocksdb:transaction(DbRef, []),
+    {ok, TxH} = rdb_transaction(DbRef, []),
     C1 = C#{ attempt := A+1, handle := TxH },
     case maps:is_key(snapshot, C) of
         true ->
@@ -310,32 +308,62 @@ current_context() ->
             undefined
     end.
 
-tx_type(batch) -> batch;
-tx_type(T) when T==tx; T==snap_tx -> {T, ?DEFAULT_RETRIES};
-tx_type({tx, Retries} = T) when is_integer(Retries),
-                                Retries >= 0 -> T;
-tx_type({snap_tx, Retries} = T) when is_integer(Retries),
-                                     Retries >= 0 -> T;
 tx_type(T) ->
     case T of
-        transaction              -> {tx, ?DEFAULT_RETRIES};
-        {transaction, Retries}   -> {tx, Retries};
-        sync_transaction         -> {tx, ?DEFAULT_RETRIES};
-        snapshot_transaction     -> {snap_tx, ?DEFAULT_RETRIES};
-        async_dirty -> batch;
-        sync_dirty  -> batch;
-        {snapshot_transaction, Retries} when is_integer(Retries),
-                                             Retries >= 0 ->
-            {snap_tx, Retries};
+        _ when T==batch;
+               T==async_dirty;
+               T==sync_dirty         -> batch;
+        _ when T==tx;
+               T==transaction;
+               T==sync_transaction   -> {tx, apply_tx_opts(#{})};
+        {tx, Opts} when is_map(Opts) -> {tx, apply_tx_opts(Opts)};
         _ -> abort(invalid_activity_type)
+    end.
+
+default_tx_opts() ->
+    #{ retries => ?DEFAULT_RETRIES
+     , no_snapshot => false }.
+
+apply_tx_opts(Opts0) when is_map(Opts0) ->
+    check_tx_opts(maps:merge(default_tx_opts(), Opts0)).
+
+check_tx_opts(Opts) ->
+    check_retries(check_nosnap(Opts)).
+
+check_retries(#{retries := Retries} = Opts) ->
+    if is_integer(Retries), Retries >= 0 ->
+           Opts;
+       true ->
+           error({invalid_tx_option, {retries, Retries}})
+    end.
+
+check_nosnap(#{no_snapshot := NoSnap} = Opts) ->
+    if is_boolean(NoSnap) -> Opts;
+       true -> error({invalid_tx_option, {no_snapshot, NoSnap}})
+    end.
+
+new_tx_context(Opts, DbRef) ->
+    maybe_snapshot(create_tx(Opts, DbRef), DbRef).
+
+create_tx(Opts, DbRef) ->
+    {ok, TxH} = rdb_transaction(DbRef, []),
+    Opts#{handle => TxH, attempt => 1}.
+
+maybe_snapshot(#{no_snapshot := NoSnap} = Opts, DbRef) ->
+    case NoSnap of
+        false ->
+            {ok, SH} = rocksdb:snapshot(DbRef),
+            Opts#{snapshot => SH};
+        _ ->
+            Opts
     end.
 
 commit_and_pop(Res) ->
     ?log(debug, "committing", []),
-    #{type := Type, handle := H, db_ref := DbRef} = Ctxt = pop_ctxt(),
+    #{type := Type, handle := H, db_ref := DbRef} = Ctxt = current_context(),
     case Type of
         tx ->
-            case rocksdb:transaction_commit(H) of
+            case rdb_transaction_commit_and_pop(H) of
                 ok ->
                     Res;
                 {error, {error, "Resource busy" ++ _ = Busy}} ->
@@ -350,7 +378,7 @@ commit_and_pop(Res) ->
                     error(Reason)
             end;
         batch ->
-            case rocksdb:write_batch(DbRef, H, []) of
+            case rdb_write_batch_and_pop(DbRef, H) of
                 ok -> Res;
                 Other ->
                     Other
@@ -359,16 +387,53 @@ commit_and_pop(Res) ->
 
 abort_and_pop(Cat, Err) ->
     ?log(debug, "aborting", []),
+    %% We can pop the context right away, since there is no
+    %% complex failure handling (like retry-on-busy) for rollback.
     #{type := Type, handle := H} = pop_ctxt(),
     case Type of
-        tx    -> ok = rocksdb:transaction_rollback(H);
-        batch -> ok = rocksdb:release_batch(H)
+        tx    -> ok = rdb_transaction_rollback(H);
+        batch -> ok = rdb_release_batch(H)
     end,
     case Cat of
         error -> error(Err);
         exit  -> exit(Err)
         %% throw -> throw(Err)
     end.
+
+rdb_transaction(DbRef, Opts) ->
+    Res = rocksdb:transaction(DbRef, Opts),
+    ?log(debug, "rocksdb:transaction(~p, ~p) -> ~p", [DbRef, Opts, Res]),
+    Res.
+
+rdb_transaction_commit_and_pop(H) ->
+    try rdb_transaction_commit(H) 
+    after
+        pop_ctxt()
+    end.
+
+rdb_transaction_commit(H) ->
+    ?log(debug, "rocksdb:transaction_commit(~p)", [H]),
+    rocksdb:transaction_commit(H).
+
+rdb_transaction_rollback(H) ->
+    ?log(debug, "rocksdb:transaction_rollback(~p)", [H]),
+    rocksdb:transaction_rollback(H).
+
+rdb_batch() ->
+    Res = rocksdb:batch(),
+    ?log(debug, "rocksdb:batch() -> ~p", [Res]),
+    Res.
+
+rdb_write_batch_and_pop(DbRef, H) ->
+    %% TODO: derive write_opts(R)
+    try rocksdb:write_batch(DbRef, H, [])
+    after
+        pop_ctxt()
+    end.
+
+rdb_release_batch(H) ->
+    ?log(debug, "rocksdb:release_batch(~p)", [H]),
+    rocksdb:release_batch(H).
 
 abort(Reason) ->
     erlang:error({mrdb_abort, Reason}).
@@ -380,7 +445,7 @@ new_tx(Tab) ->
 -spec new_tx(ref_or_tab(), write_options()) -> db_ref().
 new_tx(Tab, Opts) ->
     #{db_ref := DbRef} = R = ensure_ref(Tab),
-    {ok, TxH} = rocksdb:transaction(DbRef, write_opts(R, Opts)),
+    {ok, TxH} = rdb_transaction(DbRef, write_opts(R, Opts)),
     R#{tx_handle => TxH}.
 
 -spec tx_ref(ref_or_tab() | db_ref() | db_ref(), tx_handle()) -> db_ref().
@@ -396,9 +461,9 @@ tx_ref(Tab, TxH) ->
 
 -spec tx_commit(tx_handle() | db_ref()) -> ok.
 tx_commit(#{tx_handle := TxH}) ->
-    rocksdb:transaction_commit(TxH);
+    rdb_transaction_commit(TxH);
 tx_commit(TxH) ->
-    rocksdb:transaction_commit(TxH).
+    rdb_transaction_commit(TxH).
 
 -spec get_ref(table()) -> db_ref().
 get_ref(Tab) ->
@@ -511,16 +576,25 @@ insert(Tab, Obj0, Opts) ->
 
 validate_obj(Obj, #{mode := mnesia}) ->
     Obj;
-validate_obj(Obj, #{attr_pos := AP, properties := #{record_name := RN}}) when is_tuple(Obj) ->
+validate_obj(Obj, #{attr_pos := AP,
+                    properties := #{record_name := RN}} = Ref)
+  when is_tuple(Obj) ->
     Arity = map_size(AP) + 1,
     case {element(1, Obj), tuple_size(Obj)} of
         {RN, Arity} ->
-            Obj;
+            validate_obj_type(Obj, Ref);
         _ ->
             abort(badarg)
     end;
 validate_obj(_, _) ->
     abort(badarg).
+
+validate_obj_type(Obj, Ref) ->
+    case mnesia_rocksdb_lib:valid_obj_type(Ref, Obj) of
+        true -> Obj;
+        false ->
+            abort({bad_type, Obj})
+    end.
 
 insert_(#{semantics := bag} = Ref, Key, EncKey, EncVal, Obj, Opts) ->
     batch_if_index(Ref, insert, bag, fun insert_bag/5, Key, EncKey, EncVal, Obj, Opts);
@@ -799,7 +873,7 @@ as_batch_(#{batch := _} = R, F, _) ->
     %% If already inside a batch, add to that batch (batches don't seem to nest)
     F(R);
 as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
-    {ok, Batch} = rocksdb:batch(),
+    {ok, Batch} = rdb_batch(),
     try F(R#{batch => Batch}) of
         Res ->
             case rocksdb:write_batch(DbRef, Batch, write_opts(R, Opts)) of
@@ -809,7 +883,7 @@ as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
                     abort(Reason)
             end
     after
-        rocksdb:release_batch(Batch)
+        rdb_release_batch(Batch)
     end.
 
 %% Corresponding to `rocksdb:write()`, renamed to avoid confusion with
@@ -946,6 +1020,15 @@ fold(Tab, Fun, Acc, MatchSpec, Limit) ->
     true = valid_limit(Limit),
     mrdb_select:fold(ensure_ref(Tab), Fun, Acc, MatchSpec, Limit).
 
+rdb_fold(Tab, Fun, Acc, Prefix) when is_function(Fun, 3)
+                                   , is_binary(Prefix) ->
+    rdb_fold(Tab, Fun, Acc, Prefix, infinity).
+
+rdb_fold(Tab, Fun, Acc, Prefix, Limit) when is_function(Fun, 3)
+                                          , is_binary(Prefix) ->
+    true = valid_limit(Limit),
+    mrdb_select:rdb_fold(ensure_ref(Tab), Fun, Acc, Prefix, Limit).
+
 valid_limit(L) -> 
     case L of
         infinity ->
@@ -972,6 +1055,9 @@ write_info_(#{} = R, Tab, K, V) ->
     EncK = encode_key({info,Tab,K}, sext),
     EncV = term_to_binary(V),
     rdb_put(R, EncK, EncV, write_opts(R, [])).
+
+read_info(Tab) ->
+    mnesia_rocksdb_admin:read_info(ensure_ref(Tab)).
 
 read_info(Tab, K) ->
     read_info(Tab, K, undefined).
@@ -1114,6 +1200,7 @@ delete_obj_set(#{name := Name} = Ref, EncKey, Obj, _, Opts) ->
             ok
     end.
 
+rdb_put(R, K, V) -> rdb_put(R, K, V, []).
 rdb_put(R, K, V, Opts) ->
     rdb_put_(R, K, V, write_opts(R, Opts)).
 
@@ -1124,6 +1211,7 @@ rdb_put_(#{tx_handle := TxH, cf_handle := CfH}, K, V, _Opts) ->
 rdb_put_(#{db_ref := DbRef, cf_handle := CfH}, K, V, WOpts) ->
     rocksdb:put(DbRef, CfH, K, V, WOpts).
 
+rdb_get(R, K) -> rdb_get(R, K, []).
 rdb_get(R, K, Opts) ->
     rdb_get_(R, K, read_opts(R, Opts)).
 
@@ -1134,6 +1222,7 @@ rdb_get_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
 rdb_get_(#{db_ref := DbRef, cf_handle := CfH}, K, ROpts) ->
     rocksdb:get(DbRef, CfH, K, ROpts).
 
+rdb_delete(R, K) -> rdb_delete(R, K, []).
 rdb_delete(R, K, Opts) ->
     rdb_delete_(R, K, write_opts(R, Opts)).
 
@@ -1144,6 +1233,7 @@ rdb_delete_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
 rdb_delete_(#{db_ref := DbRef, cf_handle := CfH}, K, WOpts) ->
     rocksdb:delete(DbRef, CfH, K, WOpts).
 
+rdb_iterator(R) -> rdb_iterator(R, []).
 rdb_iterator(R, Opts) ->
     rdb_iterator_(R, read_opts(R, Opts)).
 

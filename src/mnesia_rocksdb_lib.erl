@@ -1,4 +1,4 @@
-%%% @doc RocksDB update  wrappers, in separate module for easy tracing and mocking.
+%%% @doc RocksDB update wrappers, in separate module for easy tracing and mocking.
 %%%
 -module(mnesia_rocksdb_lib).
 
@@ -13,11 +13,18 @@
         , tabname/1
         ]).
 
+-export([ default_encoding/3
+        , check_encoding/2
+        , valid_obj_type/2
+        , valid_key_type/2 ]).
+
 -export([ keypos/1
         , encode_key/1, encode_key/2
         , decode_key/1, decode_key/2
         , encode_val/1, encode_val/2
         , decode_val/1, decode_val/3
+        , encode/2
+        , decode/2
         ]).
 
 -include("mnesia_rocksdb.hrl").
@@ -76,47 +83,124 @@ tabname({Tab, retainer, Name}) ->
 tabname(Tab) when is_atom(Tab) ->
     atom_to_list(Tab) ++ "-_tab".
 
+default_encoding({_, index, _}, _, _) ->
+    {sext, {value, raw}};
+default_encoding({_, retainer, _}, _, _) ->
+    {term, {value, term}};
+default_encoding(_, Type, As) ->
+    KeyEnc = case Type of
+                 ordered_set -> sext;
+                 set         -> term;
+                 bag         -> sext
+             end,
+    ValEnc = case As of
+                 [_, _] ->
+                     {value, term};
+                 [_, _ | _] ->
+                     {object, term}
+             end,
+    {KeyEnc, ValEnc}.
+
+check_encoding(Encoding, Attributes) ->
+    try check_encoding_(Encoding, Attributes)
+    catch
+        throw:Error ->
+            Error
+    end.
+
+check_encoding_({Key, Val}, As) ->
+    Key1 = check_key_encoding(Key),
+    Val1 = check_value_encoding(Val, As),
+    {ok, {Key1, Val1}};
+check_encoding_(E, _) ->
+    throw({error, {invalid_encoding, E}}).
+
+check_key_encoding(E) when E==sext; E==term; E==raw ->
+    E;
+check_key_encoding(E) ->
+    throw({error, {invalid_key_encoding, E}}).
+
+check_value_encoding(raw, [_, _]) -> {value, raw};
+check_value_encoding({value, E} = V, [_, _]) when E==term; E==raw; E==sext -> V;
+check_value_encoding({object, E} = V, _) when E==term; E==raw; E==sext -> V;
+check_value_encoding(term, As) -> {val_encoding_type(As), term};
+check_value_encoding(sext, As) -> {val_encoding_type(As), sext};
+check_value_encoding(E, _) -> 
+    throw({error, {invalid_value_encoding, E}}).
+
+val_encoding_type(Attrs) ->
+    case Attrs of
+            [_, _]   -> value;
+            [_, _|_] -> object
+    end.
+
+valid_obj_type(#{encoding := Enc}, Obj) ->
+    case {Enc, Obj} of
+        {{binary, {value, binary}}, {_, K, V}} when is_binary(K),
+                                                    is_binary(V) ->
+            true;
+        {{binary, _}, _} when is_binary(element(2, Obj)) ->
+            true;
+        {{_, {value, binary}}, {_, _, V}} when is_binary(V) ->
+            true; 
+        _ ->
+            %% No restrictions on object type
+            %% unless key and/or value typed to binary
+            true 
+    end.
+
+valid_key_type(#{encoding := Enc}, Key) ->
+    case Enc of
+        {binary, _} when is_binary(Key) ->
+            true;
+        {binary, _} ->
+            false;
+        _ ->
+            true
+    end.
+
+
 -spec encode_key(any()) -> binary().
 encode_key(Key) ->
-    encode_(Key, sext).
+    encode(Key, sext).
 
-encode_(Value, sext) ->
+encode(Value, sext) ->
     sext:encode(Value);
-encode_(Value, raw) when is_binary(Value) ->
+encode(Value, raw) when is_binary(Value) ->
     Value;
-encode_(Value, term) ->
+encode(Value, term) ->
     term_to_binary(Value).
 
 
 encode_key(Key, #{encoding := {Enc,_}}) ->
-    encode_(Key, Enc);
+    encode(Key, Enc);
 encode_key(Key, _) ->
-    encode_(Key, sext).
+    encode(Key, sext).
 
 -spec decode_key(binary()) -> any().
 decode_key(CodedKey) ->
-    decode_(CodedKey, sext).
+    decode(CodedKey, sext).
 
 decode_key(CodedKey, #{encoding := {Enc, _}}) ->
-    decode_(CodedKey, Enc);
+    decode(CodedKey, Enc);
 decode_key(CodedKey, Enc) ->
-    decode_(CodedKey, Enc).
+    decode(CodedKey, Enc).
 
-decode_(Val, sext) ->
+decode(Val, sext) ->
     case sext:partial_decode(Val) of
         {full, Result, _} ->
             Result;
         _ ->
             error(badarg, Val)
     end;
-decode_(Val, raw) ->
+decode(Val, raw) ->
     Val;
-decode_(Val, term) ->
+decode(Val, term) ->
     binary_to_term(Val).
 
 -spec encode_val(any()) -> binary().
 encode_val(Val) ->
-    encode_(Val, term).
+    encode(Val, term).
 
 encode_val(_, #{name := {_,index,_}}) ->
     <<>>;
@@ -124,9 +208,9 @@ encode_val(Val, #{encoding := {_, Enc0}, attr_pos := AP}) ->
     {Type, Enc} = enc_type(Enc0),
     case {map_size(AP), Type} of
         {2, value} ->
-            encode_(element(3, Val), Enc);
+            encode(element(3, Val), Enc);
         {_, object} ->
-            encode_(setelement(2, Val, []), Enc)
+            encode(setelement(2, Val, []), Enc)
     end.
 
 enc_type({T, _} = E) when T==value; T==object ->
@@ -144,15 +228,21 @@ decode_val(CodedVal, Key, Ref) ->
     {Type, Enc} = value_encoding(Ref),
     case Type of
         object ->
-            setelement(2, decode_(CodedVal, Enc), Key);
+            setelement(2, decode(CodedVal, Enc), Key);
         value ->
-            make_rec(Key, decode_(CodedVal, Enc), Ref)
+            make_rec(Key, decode(CodedVal, Enc), Ref)
     end.
 
 make_rec(Key, _Val, #{name := {_, index, {_,ordered}}}) ->
     {Key};
 make_rec(Key, Val, #{properties := #{record_name := Tag}}) ->
-    {Tag, Key, Val}.
+    {Tag, Key, Val};
+make_rec(Key, Val, #{attr_pos := AP}) ->
+    %% no record name
+    case AP of
+        #{key := 1} -> {Key, Val};
+        #{key := 2} -> {Val, Key}    %% Yeah, right, but people are weird
+    end.
 
 value_encoding(#{encoding := {_, Enc}}) ->
     enc_type(Enc);
@@ -161,7 +251,8 @@ value_encoding(#{}) ->
 value_encoding({Type, Enc} = E) when is_atom(Type), is_atom(Enc) ->
     E.
 
-
+keypos({admin, _}) ->
+    1;
 keypos({_, index, _}) ->
     1;
 keypos({_, retainer, _}) ->
@@ -196,7 +287,7 @@ open_db(_, _, _, 0, LastError) ->
 open_db(MPd, Opts, CFs, RetriesLeft, _) ->
     case rocksdb:open_optimistic_transaction_db(MPd, Opts, CFs) of
         {ok, _Ref, _CFRefs} = Ok ->
-            ?log(debug, "Open - Rocksdb: ~s-> ~p", [MPd, Ok]),
+            ?log(debug, "Open - Rocksdb: ~s (~p) -> ~p", [MPd, Opts, Ok]),
             Ok;
         %% Check specifically for lock error, this can be caused if
         %% a crashed mnesia takes some time to flush rocksdb information
@@ -218,7 +309,7 @@ open_db(MPd, Opts, CFs, RetriesLeft, _) ->
     end.
 
 get_retries() -> 30.
-get_retry_delay() -> 10000.
+get_retry_delay() -> 100.
 
 rocksdb_open_opts_(RdbOpts) ->
     lists:foldl(
@@ -231,7 +322,7 @@ default_open_opts() ->
       , {cache_size,
          list_to_integer(get_env_default("ROCKSDB_CACHE_SIZE", "32212254"))}
       , {block_size, 1024}
-      , {max_open_files, 100}
+      , {max_open_files, 30}
       , {write_buffer_size,
          list_to_integer(get_env_default(
                            "ROCKSDB_WRITE_BUFFER_SIZE", "4194304"))}

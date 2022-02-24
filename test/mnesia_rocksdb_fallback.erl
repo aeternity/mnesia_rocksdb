@@ -22,7 +22,7 @@
 
 -define(m(A,B), fun() -> L = ?LINE,
                          case {A,B} of
-                             {__X, __X} ->
+                             {X__, X__} ->
                                  B;
                              Other ->
                                  error({badmatch, [Other,

@@ -4,6 +4,7 @@
         , select/4    %% (Ref, MatchSpec, AccKeys, Limit)
         , select/1    %% (Cont)
         , fold/5      %% (Ref, Fun, Acc, MatchSpec, Limit)
+        , rdb_fold/5  %% (Ref, Fun, Acc, Prefix, Limit)
         ]).
 
 -import(mnesia_rocksdb_lib, [ keypos/1
@@ -67,6 +68,24 @@ fold_(L, Fun, Acc) when is_list(L) ->
     lists:foldl(Fun, Acc, L);
 fold_({L, Cont}, Fun, Acc) ->
     fold_(select(Cont), Fun, lists:foldl(Fun, Acc, L)).
+
+rdb_fold(Ref, Fun, Acc, Prefix, Limit) ->
+    mrdb:with_rdb_iterator(
+      Ref, fun(I) ->
+                   MovRes = rocksdb:iterator_move(I, first),
+                   i_rdb_fold(MovRes, I, Prefix, Fun, Acc, Limit)
+           end).
+
+i_rdb_fold({ok, K, V}, I, Pfx, Fun, Acc, Limit) when Limit > 0 ->
+    case is_prefix(Pfx, K) of
+        true ->
+            i_rdb_fold(rocksdb:iterator_move(I, next), I, Pfx, Fun,
+                       Fun(K, V, Acc), decr(Limit));
+        false ->
+            Acc
+    end;
+i_rdb_fold(_, _, _, _, Acc, _) ->
+    Acc.
 
 i_select(I, #sel{ keypat = Pfx
                 , compiled_ms = MS
