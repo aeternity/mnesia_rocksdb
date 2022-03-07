@@ -1073,16 +1073,27 @@ read_info(Tab, K, Default) ->
             mnesia_rocksdb_admin:read_info(Alias, Tab, K, Default)
     end.
 
-read_direct_info_(_, memory, Def) ->
-    Def;
-read_direct_info_(#{db_ref := _DbRef, cf_handle := _CfH}, size, Def) ->
-    Def.
-    %% case rocksdb:count(DbRef, CfH) of
-    %%     {error, _} ->
-    %%         Def;
-    %%     Count ->
-    %%         Count
-    %% end.
+read_direct_info_(R, memory, _Def) ->
+    get_property(R, <<"rocksdb.total-sst-files-size">>, integer, 0);
+read_direct_info_(R, size, _Def) ->
+    get_property(R, <<"rocksdb.estimate-num-keys">>, integer, 0).
+
+-dialyzer({nowarn_function, get_property/4}).
+get_property(#{db_ref := R, cf_handle := CfH}, Prop, Type, Default) ->
+    case rocksdb:get_property(R, CfH, Prop) of
+        {error, _} ->
+            Default;
+        {ok, Res} ->
+              case Type of
+%%                  boolean -> rocksdb_boolean(Res);
+%%                  string  -> Res;
+                  %% get_property/3 is incorrectly typed as returning string()
+                  integer -> binary_to_integer(Res)
+              end
+   end.
+
+%%rocksdb_boolean(<<"1">>) -> true;
+%%rocksdb_boolean(<<"0">>) -> false.
 
 write_info_standalone(#{} = R, K, V) ->
     EncK = <<?INFO_TAG, (encode_key(K, sext))/binary>>,

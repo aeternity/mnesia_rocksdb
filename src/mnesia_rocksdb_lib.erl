@@ -136,13 +136,12 @@ val_encoding_type(Attrs) ->
 
 valid_obj_type(#{encoding := Enc}, Obj) ->
     case {Enc, Obj} of
-        {{binary, {value, binary}}, {_, K, V}} when is_binary(K),
-                                                    is_binary(V) ->
-            true;
-        {{binary, _}, _} when is_binary(element(2, Obj)) ->
-            true;
-        {{_, {value, binary}}, {_, _, V}} when is_binary(V) ->
-            true; 
+        {{binary, {value, binary}}, {_, K, V}} ->
+            is_binary(K) andalso is_binary(V);
+        {{binary, _}, _} ->
+            is_binary(element(2, Obj));
+        {{_, {value, binary}}, {_, _, V}} ->
+            is_binary(V); 
         _ ->
             %% No restrictions on object type
             %% unless key and/or value typed to binary
@@ -202,6 +201,8 @@ decode(Val, term) ->
 encode_val(Val) ->
     encode(Val, term).
 
+encode_val(Val, Enc) when is_atom(Enc) ->
+    encode(Val, Enc); 
 encode_val(_, #{name := {_,index,_}}) ->
     <<>>;
 encode_val(Val, #{encoding := {_, Enc0}, attr_pos := AP}) ->

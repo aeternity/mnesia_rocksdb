@@ -818,11 +818,8 @@ handle_call(close_table, _From, #st{alias = Alias, tab = Tab} = St) ->
     _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
     {reply, ok, St#st{ref = undefined}};
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
-    Res = case mnesia_rocksdb_admin:delete_table(Alias, Tab) of
-              ok -> ok;
-              {error, not_found} -> ok
-          end,
-    {stop, normal, Res, St#st{ref = undefined}}.
+    ok = mnesia_rocksdb_admin:delete_table(Alias, Tab),
+    {stop, normal, ok, St#st{ref = undefined}}.
 
 handle_cast(_, St) ->
     {noreply, St}.
