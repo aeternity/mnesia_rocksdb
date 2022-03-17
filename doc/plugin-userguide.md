@@ -45,7 +45,7 @@ backs up data.
 
 - rocksdb (included as dependency)
 - sext (included as dependency)
-- Erlang/OTP 21.0 or newer (https://github.com/erlang/otp)
+- Erlang/OTP 22.0 or newer (https://github.com/erlang/otp)
 
 ### Getting started
 
@@ -79,6 +79,8 @@ ok
 3> mnesia_schema:backend_types().
 [ram_copies,disc_copies,disc_only_copies,rocksdb_copies]
 ```
+
+(In `mnesia_rocksdb`, a shortcut for this exists in `mnesia_rocksdb:create_schema(Nodes)`.)
 
 2. Add it when starting mnesia, using `mnesia:start/1` (undocumented)
 

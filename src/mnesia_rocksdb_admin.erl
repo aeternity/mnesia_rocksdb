@@ -58,15 +58,8 @@
                     , cf_info := #{ table() := cf() }
                     }.
 -type db_ref() :: rocksdb:db_handle().
-%% -type cf_handle() :: rocksdb:cf_handle().
-%% -type type() :: column_family | standalone.
-%% -type status() :: open | closed | pre_existing.
 -type properties() :: [{atom(), any()}].
 
-%% -type cf() :: #{ db_ref := db_ref()
-%%                , type   := type()
-%%                , status := status()
-%%                , cf_handle := cf_handle() }.
 -type cf() :: mrdb:db_ref().
 
 -type req() :: {create_table, table(), properties()}
@@ -140,9 +133,6 @@ prep_close(Alias, Tab) when is_atom(Tab) ->
 prep_close(_, _) ->
     ok.
 
-%% get_pt(Name) ->
-%%     persistent_term:get(?PT_KEY(Name)).
-
 get_pt(Name, Default) ->
     maps:get(Name, meta(), Default).
 
@@ -214,6 +204,33 @@ get_info_res(Res, Default) ->
             error(E)
     end.
 
+%% Admin info: metadata written by the admin proc to keep track of
+%% the derived status of tables (such as detected version and encoding
+%% of existing standalone tables.)
+%%
+write_admin_info(K, V, Alias, Name) ->
+    mrdb:rdb_put(get_ref({admin, Alias}),
+                 admin_info_key(K, Name),
+                 term_to_binary(V)).
+
+read_admin_info(K, Alias, Name) ->
+    EncK = admin_info_key(K, Name),
+    case mrdb:rdb_get(get_ref({admin,Alias}), EncK) of
+        {ok, Bin} ->
+            {ok, binary_to_term(Bin)};
+        _ ->
+            error
+    end.
+
+delete_admin_info(K, Alias, Name) ->
+    EncK = admin_info_key(K, Name),
+    mrdb:rdb_delete(get_ref({admin, Alias}), EncK).
+
+admin_info_key(K, Name) ->
+    mnesia_rocksdb_lib:encode_key({admin_info, Name, K}, sext).
+
+%% Table metadata info maintained by users
+%%
 write_info(Alias, Tab, K, V) ->
     write_info_(get_ref({admin, Alias}), Tab, K, V).
 
@@ -241,7 +258,10 @@ migrate_standalone(Alias, Tabs) ->
 
 -spec call(alias() | [], req()) -> no_return() | any().
 call(Alias, Req) ->
-    case gen_server:call(?MODULE, {Alias, Req}) of
+    call(Alias, Req, infinity).
+
+call(Alias, Req, Timeout) ->
+    case gen_server:call(?MODULE, {Alias, Req}, Timeout) of
         {abort, Reason} ->
             mnesia:abort(Reason);
         {error, {mrdb_abort, Reason}} ->
@@ -256,9 +276,8 @@ start_link() ->
 
 init([]) ->
     Opts = default_opts(),
-    %% Aliases = get_aliases(),
-    %% St = load_admin_dbs(Aliases, #st{default_opts = Opts}),
     process_flag(trap_exit, true),
+    mnesia:subscribe({table, schema, simple}),
     {ok, recover_state(#st{default_opts = Opts})}.
 
 recover_state(St0) ->
@@ -372,6 +391,29 @@ handle_cast(_Msg, St) ->
     {noreply, St}.
 
 -spec handle_info(any(), st()) -> gen_server_noreply().
+handle_info({mnesia_table_event, Event}, St) ->
+    ?log(debug, "Table event: ~p", [Event]),
+    case Event of
+        {write, {schema, Tab, Props}, _} ->
+            case find_cf(Tab, St) of
+                error ->
+                    ?log(debug, "No Cf found (~p)", [Tab]),
+                    {noreply, St};
+                #{alias := Alias} = Cf ->
+                    ?log(debug, "Located Cf: ~p", [Cf]),
+                    case try_refresh_cf(Cf, Props, St) of
+                        false ->
+                            ?log(debug, "Nothing changed (~p)", [Tab]),
+                            {noreply, St};
+                        {true, NewCf, St1} ->
+                            ?log(debug, "NewCf = ~p", [NewCf]),
+                            maybe_update_pt(Tab, NewCf),
+                            {noreply, St1}
+                    end
+            end;
+       _ ->
+            {noreply, St}
+    end;
 handle_info(_Msg, St) ->
     {noreply, St}.
 
@@ -413,13 +455,10 @@ intersection(A, B) ->
 
 -spec handle_req(alias(), req(), backend(), st()) -> gen_server_reply().
 handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
-    Old = case find_cf(Alias, Name, Backend, St) of
-              {ok, Cf} -> Cf;
-              error    -> undefined
-          end,
     case create_trec(Alias, Name, Props, Backend, St) of
         {ok, NewCf} ->
-            St1 = update_state(Alias, Name, NewCf, Old, St),
+            ?log(debug, "NewCf = ~p", [NewCf]),
+            St1 = update_cf(Alias, Name, NewCf, St),
             {reply, {ok, NewCf}, St1};
         {error, _} = Error ->
             {reply, Error, St}
@@ -432,8 +471,10 @@ handle_req(Alias, {load_table, Name}, Backend, St) ->
         {ok, TRec} ->
             case create_table_from_trec(Alias, Name, TRec, Backend, St) of
                 {ok, TRec1, St1} ->
-                    St2 = maybe_update_main(Alias, Name, create, St1),
-                    put_pt(Name, TRec1),
+                    TRec2 = TRec1#{status => open},
+                    St2 = update_cf(Alias, Name, TRec2, St1),
+                    ?log(debug, "Table loaded ~p", [Name]),
+                    put_pt(Name, TRec2),
                     {reply, ok, St2};
                 {error, _} = Error ->
                     {reply, Error, St}
@@ -441,8 +482,8 @@ handle_req(Alias, {load_table, Name}, Backend, St) ->
         error ->
             {reply, {abort, {bad_type, Name}}, St}
     end;
-handle_req(Alias, {prep_close, Name}, Backend, St) ->
-    ok_reply(do_prep_close(Alias, Name, Backend, St), St);
+handle_req(_Alias, {prep_close, Name}, Backend, St) ->
+    ok_reply(do_prep_close(Name, Backend, St), St);
 handle_req(Alias, {close_table, Name}, Backend, St) ->
     ok_reply(do_close_table(Alias, Name, Backend, St), St);
 handle_req(Alias, {delete_table, Name}, Backend, St) ->
@@ -461,8 +502,8 @@ handle_req(Alias, {get_ref, Name}, Backend, #st{} = St) ->
         error ->
             {reply, {error, not_found}, St}
     end;
-handle_req(Alias, {related_resources, Tab}, Backend, St) ->
-    Res = get_related_resources(Alias, Tab, Backend, St),
+handle_req(_Alias, {related_resources, Tab}, Backend, St) ->
+    Res = get_related_resources(Tab, Backend),
     {reply, Res, St};
 handle_req(Alias, {write_table_property, Tab, Prop}, Backend, St) ->
     case find_cf(Alias, Tab, Backend, St) of
@@ -492,34 +533,6 @@ handle_req(Alias, {migrate, Tabs0}, Backend, St) ->
             {reply, Error, St}
     end.
 
-update_state(Alias, Name, #{type := NewT} = Cf, #{type := OldT} = Old, St) ->
-    case NewT =:= OldT of
-        false ->
-            add_to_state(Alias, Name, Cf,
-                         del_from_state(Alias, Name, Old, St));
-        true ->
-            add_to_state(Alias, Name, Cf, St)
-    end;
-update_state(Alias, Name, Cf, undefined, St) ->
-    add_to_state(Alias, Name, Cf, St).
-
-add_to_state(Alias, Name, #{type := Type} = Cf, St) ->
-    case Type of
-        column_family ->
-            update_cf(Alias, Name, Cf, St);
-        standalone    ->
-            #st{standalone = Ts} = St,
-            St#st{standalone = Ts#{ {Alias, Name} => Cf }}
-    end.
-
-del_from_state(Alias, Name, #{type := Type}, St) ->
-    case Type of
-        column_family ->
-            delete_cf(Alias, Name, St);
-        standalone ->
-            #st{standalone = Ts} = St,
-            St#st{standalone = maps:remove({Alias, Name}, Ts)}
-    end.
 
 %% if an index table has been created or deleted, make sure the main
 %% ref reflects it.
@@ -527,10 +540,6 @@ maybe_update_main(Alias, {Main, index, I}, Op, St) ->
     case find_cf_from_state(Alias, Main, St) of
         {ok, #{properties := #{index := Index} = Props} = CfM} ->
             case {Op, lists:member(I, Index)} of
-                {create, false} ->
-                    CfM1 = CfM#{properties => Props#{index => lists:sort([I|Index])}},
-                    maybe_update_pt(Main, CfM1),
-                    update_cf(Alias, Main, CfM1, St);
                 {delete, true} ->
                     CfM1 = CfM#{properties => Props#{index => Index -- [I]}},
                     maybe_update_pt(Main, CfM1),
@@ -559,15 +568,11 @@ ok_reply({ok, St}, _) ->
 ok_reply({error, _} = Error, St) ->
     {reply, {abort, Error}, St}.
 
-get_related_resources(Alias, Tab, #st{backends = Backends} = St) ->
-    get_related_resources(Alias, Tab, maps:get(Alias, Backends), St).
-
-get_related_resources(_Alias, Tab, #{cf_info := CfInfo}, #st{standalone = Ts}) ->
+get_related_resources(Tab, #{cf_info := CfInfo}) ->
     F = fun(K, _, Acc) ->
                 acc_related_to(Tab, K, Acc)
         end,
-    Res1 = maps:fold(F, [], CfInfo),
-    maps:fold(F, Res1, Ts).
+    maps:fold(F, [], CfInfo).
 
 acc_related_to(T, {T, _, _} = Tab, Acc) ->
     [Tab | Acc];
@@ -601,12 +606,29 @@ find_cf_from_state(Alias, Name, #st{backends = Backends} = St) ->
             {error, not_found}
     end.
 
+find_cf(Name, #st{backends = Backends}) ->
+    maps:fold(
+      fun(_Alias, #{cf_info := CfI}, Acc) ->
+              case maps:find(Name, CfI) of
+                  {ok, Cf} -> Cf;
+                  error    -> Acc
+              end
+      end, error, Backends).
+
 find_cf(Alias, Name, #{cf_info := CfI}, #st{standalone = Ts}) ->
     case maps:find(Name, CfI) of
         {ok, _} = Ok ->
             Ok;
         error ->
             maps:find({Alias, Name}, Ts)
+    end.
+
+get_table_mountpoint(Alias, Name, #st{standalone = Ts}) ->
+    case maps:find({Alias, Name}, Ts) of
+        {ok, #{mountpoint := MP}} ->
+            {ok, MP};
+        _ ->
+            error
     end.
 
 cf_is_accessible(DbRef, CfH) ->
@@ -633,13 +655,11 @@ create_trec(Alias, Name, Props, Backend, St) ->
             {error, exists};
         {ok, TRec0} ->
             do_create_trec(Alias, Name, Props, TRec0, St);
-        Other ->
-            ?log(debug, "~p/~p not open: ~p", [Alias, Name, Other]),
+        _Other ->
             do_create_trec(Alias, Name, Props, #{}, St)
     end.
 
 do_create_trec(Alias, Name, Props, TRec0, #st{} = St) ->
-    ?log(debug, "do_create ~p", [Name]),
     Type = case rdb_opt_standalone(Props) of
                true -> standalone;
                false -> column_family
@@ -651,16 +671,12 @@ do_create_trec(Alias, Name, Props, TRec0, #st{} = St) ->
              Alias, Name,
              maybe_map_attrs(
                TRec0#{ semantics   => semantics(Name, PMap)
-                       , name        => Name
-                       , type        => Type
-                       , alias       => Alias
-                       , properties  => PMap
-                       , status      => created })), St)}.
+                     , name        => Name
+                     , type        => Type
+                     , alias       => Alias
+                     , properties  => PMap
+                     , status      => created })), St)}.
 
-%%create_table_from_trec(Alias, Name, TRec, Standalone, Backend, St) ->
-%%    create_table_from_trec(
-%%      Alias, Name, TRec, Standalone, auto_migrate_to_cf(Name), Backend, St).
-%%
 create_table_from_trec(Alias, Name, #{cf_handle := CfH, db_ref := DbRef} = R,
                        _Backend, St) ->
     case cf_is_accessible(DbRef, CfH) of
@@ -676,35 +692,44 @@ create_table_from_trec(Alias, Name, #{type := column_family} = TRec,
         false ->
             create_table_as_cf(Alias, Name, TRec#{db_ref => DbRef}, St);
         {false, MP} ->
-            create_table_as_standalone(Alias, Name, MP, TRec, St);
+            ?log(debug, "will create ~p as standalone (no migrate)", [Name]),
+            create_table_as_standalone(Alias, Name, true, MP, TRec, St);
         {true, MP} ->
-            create_cf_and_migrate(Alias, Name, TRec, MP, Backend, St)
+            ?log(debug, "will create ~p as standalone and migrate", [Name]),
+            case create_table_as_standalone(Alias, Name, false, MP, TRec, St) of
+                {ok, OldTRec, _} ->
+                    create_cf_and_migrate(Alias, Name, OldTRec, TRec, Backend, St);
+                Other ->
+                    ?log(info, "Couldn't open what seems to be a standalone table"
+                         " (~p): ~p", [Name, Other]),
+                    create_table_as_cf(Alias, Name, TRec#{db_ref => DbRef}, St)
+            end
    end;
 create_table_from_trec(Alias, Name, #{type := standalone} = TRec, _, St) ->
-    MP = mnesia_rocksdb_lib:data_mountpoint(Name),
-    create_table_as_standalone(Alias, Name, MP, TRec, St).
+    {Exists, MP} = table_exists_as_standalone(Name),
+    create_table_as_standalone(Alias, Name, Exists, MP, TRec, St).
 
-create_cf_and_migrate(Alias, Name, TRec, Backend, St) ->
-    MP = mnesia_rocksdb_lib:data_mountpoint(Name),
-    create_cf_and_migrate(Alias, Name, TRec, MP, Backend, St).
-
-create_cf_and_migrate(Alias, Name, TRec, MP, #{db_ref := DbRef}, St) ->
+create_cf_and_migrate(Alias, Name, OldTRec, TRec, #{db_ref := DbRef}, St) ->
     ?log(debug, "Migrate to cf (~p)", [Name]),
     {ok, NewCf, St1} = create_table_as_cf(
                          Alias, Name, TRec#{db_ref => DbRef}, St),
-    {ok, St2} = migrate_standalone_to_cf(Alias, MP, NewCf, St1),
+    {ok, St2} = migrate_standalone_to_cf(OldTRec, NewCf, St1),
     {ok, NewCf, St2}.
 
+%% Return {Migrate, MP} iff table exists standalone; just false if it doesn't
 should_we_migrate_standalone(#{name := Name}) ->
     case table_exists_as_standalone(Name) of
         {true, MP} ->
+            ?log(debug, "table ~p exists as standalone: ~p", [Name, MP]),
             case auto_migrate_to_cf(Name) of
                 true ->
+                    ?log(debug, "auto_migrate(~p): true", [Name]),
                     {true, MP};
                 false ->
+                    ?log(debug, "auto_migrate(~p): false", [Name]),
                     {false, MP}
             end;
-        false ->
+        {false, _} ->
             false
     end.
 
@@ -712,33 +737,37 @@ prepare_migration(Alias, Tabs, St) ->
     Res = lists:map(fun(T) ->
                             prepare_migration_(Alias, T, St)
                     end, Tabs),
-    case [E || {error, _} = E <- Res] of
-        [] -> {ok, Res};
+    Res1 = add_related_tabs(Res, maps:get(Alias, St#st.backends), Alias, St),
+    case [E || {error, _} = E <- Res1] of
+        [] -> {ok, Res1};
         [_|_] = Errors ->
             {error, Errors}
     end.
 
-prepare_migration_(Alias, T, #st{standalone = Ts}) ->
+add_related_tabs(Ts, Backend, Alias, St) ->
+    lists:flatmap(
+      fun({error,_} = E) -> [E];
+         ({T, _, _} = TI) ->
+              [TI | [prepare_migration_(Alias, Rel, St)
+                     || Rel <- get_related_resources(T, Backend)]]
+      end, Ts).
+
+prepare_migration_(Alias, T, #st{} = St) ->
     {TName, Opts} = case T of
                         {_, Map} when is_map(Map) -> T;
                         _ -> {T, #{}}
                     end,
-    case table_exists_as_standalone(TName) of
-        {true, _MP} ->
-            case maps:find({Alias, TName}, Ts) of
-                {ok, TRec0} ->
-                    %% Remove instance-specific attributes, 
-                    TRec1 =
-                    apply_migration_opts(
+    case find_cf_from_state(Alias, TName, St) of
+        {ok, #{type := standalone} = TRec} ->
+            TRec1 = apply_migration_opts(
                       Opts,
-                        maps:without([db_ref, type, cf_info, cf_handle,
-                                      encoding, mountpoint, status], TRec0)),
-                    {TName, TRec1};
-                error ->
-                    {error, {no_open_standalone_table, TName}}
-            end;
-        false ->
-            {error, {no_such_standalone_table, TName}}
+                      maps:without([db_ref, type, cf_info, cf_handle,
+                                    encoding, mountpoint, status], TRec)),
+            {TName, TRec, TRec1};
+        {ok, _} ->
+            {error, {not_standalone, TName}};
+        error ->
+            {error, {no_such_table, TName}}
     end.
 
 do_migrate_tabs(Alias, Tabs, Backend, St) ->
@@ -746,12 +775,17 @@ do_migrate_tabs(Alias, Tabs, Backend, St) ->
                         do_migrate_table(Alias, T, Backend, St1)
                 end, St, Tabs).
 
-do_migrate_table(Alias, {Name, TRec0}, Backend, St) when is_map(TRec0) ->
+do_migrate_table(Alias, {Name, OldTRec, TRec0}, Backend, St) when is_map(TRec0) ->
+    T0 = erlang:system_time(millisecond),
     TRec = maps:without([encoding, vsn], TRec0),
     maybe_write_user_props(TRec),
-    {ok, CF, St1} = create_cf_and_migrate(Alias, Name, TRec, Backend, St),
+    {ok, CF, St1} = create_cf_and_migrate(Alias, Name, OldTRec,
+                                          TRec, Backend, St),
     put_pt(Name, CF),
-    {{Name, ok}, St1}.
+    T1 = erlang:system_time(millisecond),
+    Time = T1 - T0,
+    io:fwrite("~p migrated, ~p ms~n", [Name, Time]),
+    {{Name, {ok, Time}}, St1}.
 
 maybe_write_user_props(#{name := T, properties := #{user_properties := UPMap}}) ->
     %% The UP map is #{Key => Prop}, where element(1, Prop) == Key
@@ -769,19 +803,14 @@ maybe_write_user_props(#{name := T, properties := #{user_properties := UPMap}}) 
                       [mnesia_schema:do_delete_table_property(T, K)
                        || K <- DelPs]
               end)
-    end.
+    end;
+maybe_write_user_props(#{} = TRec) ->
+    TRec.
 
 props_to_write(UPs, SchemaProps) ->
     %% Include both new and modified
     [P || P <- UPs,
           not lists:member(P, SchemaProps)].
-%%    lists:foldr(
-%%      fun(P, Acc) ->
-%%              case lists:keyfind(element(1,P), 1, SchemaProps) of
-%%                  P -> Acc;
-%%                  _ -> [P | Acc]
-%%              end
-%%      end, [], UPs).
 
 props_to_delete(UPs, SchemaProps) ->
     lists:filtermap(
@@ -863,6 +892,18 @@ props_to_map(TabName, Props) when is_atom(TabName) ->
 props_to_map({Tab,_,_}, _) ->
     #{main_table => Tab, attributes => [key, val]}.
 
+try_refresh_cf(#{alias := Alias, name := Name, properties := Ps} = Cf, Props, St) ->
+    PMap = props_to_map(Name, Props),
+    ?log(debug, "PMap = ~p", [PMap]),
+    case PMap =:= Ps of
+        true -> false;
+        false ->
+            NewCf = maybe_map_attrs(Cf#{properties => PMap}),
+            {true, NewCf, update_cf(Alias, Name, NewCf, St)}
+    end;
+try_refresh_cf(_, _, _) ->
+    false.
+
 update_user_properties(Prop, #{properties := Ps} = Cf) ->
     Key = element(1, Prop),
     UserProps = case maps:find(user_properties, Ps) of
@@ -873,42 +914,54 @@ update_user_properties(Prop, #{properties := Ps} = Cf) ->
 
 semantics({_,index,_}   , _) -> ordered_set;
 semantics({_,retainer,_}, _) -> set;
-%% semantics({admin,_}     , _) -> set;
 semantics(T, #{type := Type}) when is_atom(T) -> Type.
 
 table_exists_as_standalone(Name) ->
     MP = mnesia_rocksdb_lib:data_mountpoint(Name),
-    case file:read_link_info(MP) of
-        {ok, _} ->
-            %% mountpoint exists; assume it's the standalone db
-            {true, MP};
-        {error, _} ->
-            false
-    end.
+    Exists = case file:read_link_info(MP) of
+        {ok, _}    -> true;
+        {error, _} -> false
+    end,
+    {Exists, MP}.
 
-create_table_as_standalone(Alias, Name, MP, TRec, St) ->
-    Vsn = check_version(TRec),
-    TRec1 = TRec#{vsn => Vsn, encoding => get_encoding(Vsn, TRec)},
-    case do_open_standalone(true, Alias, Name, MP, TRec1, St) of
-        {ok, #{type := standalone, vsn := 1} = Cf, _} = Ok ->
-            load_info(Alias, Name, Cf),
+create_table_as_standalone(Alias, Name, Exists, MP, TRec, St) ->
+    case create_table_as_standalone_(Alias, Name, Exists, MP, TRec, St) of
+        {ok, #{type := standalone, vsn := Vsn1,
+               encoding := Enc1} = Cf, _St1} = Ok ->
+            write_admin_info(standalone_vsn_and_enc, {Vsn1, Enc1},
+                             Alias, Name),
+            case Vsn1 of
+                1 ->
+                    load_info(Alias, Name, Cf);
+                _ ->
+                    skip
+            end,
             Ok;
         Other ->
             Other
     end.
 
-do_open_standalone(CreateIfMissing, Alias, Name, MP, TRec0, #st{standalone = Ts} = St) ->
+create_table_as_standalone_(Alias, Name, Exists, MP, TRec, St) ->
+    Vsn = check_version(TRec),
+    TRec1 = TRec#{vsn => Vsn, encoding => get_encoding(Vsn, TRec)},
+    do_open_standalone(true, Alias, Name, Exists, MP, TRec1, St).
+
+do_open_standalone(CreateIfMissing, Alias, Name, Exists, MP, TRec0,
+                   #st{standalone = Ts} = St) ->
     Opts = rocksdb_opts_from_trec(TRec0),
     case open_db_(MP, Alias, Opts, [], CreateIfMissing) of
-        {ok, #{cf_info :=
-               #{{ext,Alias,"default"} :=
-                 #{cf_handle := CfHandle}}} = DbRec} ->
-            TRec = maps:merge(TRec0, DbRec#{type => standalone,
-                                            cf_handle => CfHandle}),
-            Encoding = guess_table_encoding(TRec),
-            TRec1 = TRec#{encoding => Encoding},
-            {ok, TRec1, St#st{standalone = Ts#{{Alias, Name} => TRec1}}};
+        {ok, #{ cf_info :=
+                #{{ext,Alias,"default"} := #{} = DbRec} = CfI }} ->
+            ?log(debug, "successfully opened db ~p", [Name]),
+            CfNames = maps:keys(CfI),
+            DbRec1 = DbRec#{ cfs => CfNames,
+                             mountpoint => MP },
+            TRec = maps:merge(TRec0, DbRec#{type => standalone}),
+            TRec1 = guess_table_vsn_and_encoding(Exists, TRec),
+            ?log(debug, "TRec1 = ~p", [TRec1]),
+            {ok, TRec1, St#st{standalone = Ts#{{Alias, Name} => DbRec1}}};
         {error, _} = Err ->
+            ?log(debug, "open_db error: ~p", [Err]),
             Err
     end.
 
@@ -922,49 +975,56 @@ do_open_standalone(CreateIfMissing, Alias, Name, MP, TRec0, #st{standalone = Ts}
 %% or a data object, with a sext-encoded key, and a term_to_binary-
 %% encoded object as value, where the key position is set to [].
 %% The info objects would be sext-encoded key + term-encoded value.
-guess_table_encoding(#{encoding := Enc} = TRec) ->
-    guess_table_encoding(TRec, Enc).
+guess_table_vsn_and_encoding(false, TRec) ->
+    TRec;
+guess_table_vsn_and_encoding(true, #{properties := #{attributes := As},
+                                     alias := Alias, name := Name} = R) ->
+    ?log(debug, "guess_vsn_and_encoding(R = ~p)", [R]),
+    case read_admin_info(standalone_vsn_and_enc, Alias, Name) of
+        {ok, {V, E}} ->
+            ?log(debug, "admin_info exists: ~p", [{V,E}]),
+            R#{vsn => V, encoding => E};
+        error ->
+            ?log(debug, "no admin_info; will iterate", []),
+            R1 = set_default_guess(R),
+            mrdb:with_rdb_iterator(
+              R1, fun(I) ->
+                          guess_table_vsn_and_encoding_(
+                            mrdb:rdb_iterator_move(I, first), I, As, R1)
+                  end)
+    end.
 
-guess_table_encoding(#{properties := #{attributes := As}} = DbRec, Default) ->
-    mrdb:with_rdb_iterator(
-      DbRec, fun(I) ->
-                     guess_table_encoding_(
-                       mrdb:rdb_iterator_move(I, first), I, As, Default)
-             end).
+set_default_guess(#{type := standalone} = R) ->
+    case application:get_env(mnesia_rocksdb, standalone_default_vsn, ?VSN) of
+        1 ->
+            R#{vsn => 1, encoding => {sext, {object, term}}};
+        V ->
+            R#{vsn => V}
+    end.
 
-%% This is slightly different from `rocksdb:is_empty/1`, since it allows
-%% for the presence of some metadata, and still considers it empty if there
-%% is no user data.
-table_is_empty(#{} = DbRec) ->
-    Start = iterator_data_start(DbRec),
-    mrdb:with_rdb_iterator(
-      DbRec, fun(I) ->
-                     case mrdb:rdb_iterator_move(I, Start) of
-                         {ok, _, _} -> false;
-                         _          -> true
-                     end
-             end).
-
-iterator_data_start(#{vsn := 1}) -> <<?DATA_START>>;
-iterator_data_start(_)           -> first.
-
-guess_table_encoding_({ok, K, V}, _I, As, Default) ->
+guess_table_vsn_and_encoding_({ok, K, V}, _I, As, R) ->
     Arity = length(As) + 1,
     case K of
         <<?INFO_TAG, EncK/binary>> ->
             try _ = {mnesia_rocksdb_lib:decode(EncK, sext),
                      mnesia_rocksdb_lib:decode(V, term)},
                 %% This is a vsn 1 standalone table
-                {sext, {object, term}}
+                ?log(debug, "Found info tag; this is a vsn 1", []),
+                R#{vsn => 1, encoding => {sext, {object, term}}}
             catch
                 error:_ ->
-                    Default
+                    ?log(debug, "caught bad guess K=~p, V=~p", [K,V]),
+                    R
             end;
         _ ->
-            guess_obj_encoding(K, V, Arity)
+            ?log(debug, "not info obj K=~p", [K]),
+            Enc = guess_obj_encoding(K, V, Arity),
+            ?log(debug, "guessed Enc = ~p", [Enc]),
+            R#{encoding => Enc}
    end;
-guess_table_encoding_(_, _, _, Default) ->
-    Default.
+guess_table_vsn_and_encoding_(Other, _, _, R) ->
+    ?log(debug, "Iter Other=~p", [Other]),
+    R.
 
 guess_obj_encoding(K, V, Arity) ->
     {guess_key_encoding(K), guess_val_encoding(V, Arity)}.
@@ -996,6 +1056,22 @@ guess_val_encoding(Bin, Arity) ->
                    {value, Enc}
             end
     end.
+
+%% This is slightly different from `rocksdb:is_empty/1`, since it allows
+%% for the presence of some metadata, and still considers it empty if there
+%% is no user data.
+table_is_empty(#{} = DbRec) ->
+    Start = iterator_data_start(DbRec),
+    mrdb:with_rdb_iterator(
+      DbRec, fun(I) ->
+                     case mrdb:rdb_iterator_move(I, Start) of
+                         {ok, _, _} -> false;
+                         _          -> true
+                     end
+             end).
+
+iterator_data_start(#{vsn := 1}) -> <<?DATA_START>>;
+iterator_data_start(_)           -> first.
 
 load_info(Alias, Name, Cf) ->
     ARef = get_ref({admin, Alias}),
@@ -1062,43 +1138,20 @@ check_encoding(E, #{properties := #{attributes := As}}) ->
 rocksdb_opts_from_trec(TRec) ->
     user_property(rocksdb_opts, TRec, []).
 
-migrate_standalone_to_cf(Alias, MP, #{name := T} = Cf, #st{standalone = Ts} = St) ->
-    try migrate_standalone_to_cf_(Alias, MP, Cf, St) of
-        #{db_ref := DbRef} = OldR ->
-            Ts1 = maps:remove({Alias, T}, Ts),
-            case table_is_empty(OldR) of
-                true ->
-                    ok = rocksdb:close(DbRef),
-                    ok = rocksdb:destroy(MP, []),
-                    {ok, St#st{standalone = Ts1}};
-                false ->
-                    ?log(error, "Standalone tab ~p NOT empty", [T]),
-                    {ok, St}
-            end
-    catch
-        error:E:ST ->
-            ?log(error, "CAUGHT error:~p / ~p", [E, ST]),
-            {error, E};
-        throw:E ->
-            {error, E}
-    end.
-
-migrate_standalone_to_cf_(Alias, MP, #{name := T} = Cf, #st{standalone = Ts}) ->
-    DbRec = case maps:find({Alias, T}, Ts) of
-                {ok, R} -> R;
-                error ->
-                    case open_db_(MP, Alias, [], [], false) of
-                        {ok, DbRec0} ->
-                            maps:merge(Cf, DbRec0#{type => standalone});
-                        OpenError ->
-                            throw({db_open_error, OpenError})
-                    end
-            end,
-    ChunkSz = chunk_size(Cf),
+migrate_standalone_to_cf(OldTRec, #{name := T, alias := Alias} = TRec,
+                         #st{standalone = Ts} = St) ->
+    ChunkSz = chunk_size(TRec),
     KeyPos = mnesia_rocksdb_lib:keypos(T),
-    migrate_to_cf(mrdb:select(DbRec, [{'_',[],['$_']}], ChunkSz),
-                  Cf, DbRec, KeyPos),
-    DbRec.
+    migrate_to_cf(mrdb:select(OldTRec, [{'_',[],['$_']}], ChunkSz),
+                  TRec, OldTRec, KeyPos),
+    case maps:is_key({Alias,T}, Ts)
+         andalso table_is_empty(OldTRec) of
+        true ->
+            St1 = close_and_delete_standalone(OldTRec, St),
+            {ok, St1};
+        false ->
+            {ok, St}
+    end.
 
 migrate_to_cf({L, Cont}, Cf, DbRec, KeyPos) ->
     mrdb:as_batch(
@@ -1136,8 +1189,8 @@ create_table_as_cf(Alias, Name, #{db_ref := DbRef} = R, St) ->
             Error
     end.
 
-do_prep_close(Alias, Name, _Backend, St) ->
-    RelTabs = get_related_resources(Alias, Name, St),
+do_prep_close(Name, Backend, St) ->
+    RelTabs = get_related_resources(Name, Backend),
     erase_pt_list([Name | RelTabs]),
     {ok, St}.
 
@@ -1171,7 +1224,7 @@ do_close_table(Alias, Name, Backend, #st{standalone = Ts} = St) ->
             {error, not_found}
     end.
 
-do_delete_table(Alias, Name, Backend, #st{standalone = Ts} = St) ->
+do_delete_table(Alias, Name, Backend, #st{} = St) ->
     case find_cf(Alias, Name, Backend, St) of
         {ok, Where} ->
             erase_pt(Name),
@@ -1180,9 +1233,9 @@ do_delete_table(Alias, Name, Backend, #st{standalone = Ts} = St) ->
                     rocksdb:drop_column_family(DbRef, CfH),
                     rocksdb:destroy_column_family(DbRef, CfH),
                     {ok, delete_cf(Alias, Name, St)};
-                #{db_ref := DbRef, mountpoint := MP, type := standalone} ->
-                    close_and_delete(DbRef, MP),
-                    {ok, St#st{standalone = maps:remove({Alias, Name}, Ts)}}
+                #{type := standalone} = R ->
+                    St1 = close_and_delete_standalone(R, St),
+                    {ok, St1}
             end;
         error ->
             {error, not_found}
@@ -1214,7 +1267,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
         true ->
             %% Assumption: even an old rocksdb database file will have at least "default"
             {ok,CFs} = rocksdb:list_column_families(MP, Opts),
-            CFs1 = [{CF,[]} || CF <- CFs],   %% TODO: this really needs more checking
+            CFs1 = [{CF,[]} || CF <- CFs], %% TODO: this really needs more checking
             map_cfs(rocksdb_open(MP, Opts, CFs1), CFs1, Alias, Acc0)
     end.
 
@@ -1311,6 +1364,19 @@ stick_rocksdb_dir() ->
 warn_stick_dir(Reason) ->
     mnesia_lib:warning("cannot make rocksdb directory sticky:~n~p~n",
                        [Reason]).
+
+close_and_delete_standalone(#{alias := Alias,
+                              name := Name,
+                              type := standalone,
+                              db_ref := DbRef}, St) ->
+    case get_table_mountpoint(Alias, Name, St) of
+        {ok, MP} ->
+            close_and_delete(DbRef, MP),
+            delete_admin_info(standalone_vsn_and_enc, Alias, Name),
+            St#st{standalone = maps:remove({Alias,Name}, St#st.standalone)};
+        error ->
+            St
+    end.
 
 close_and_delete(DbRef, MP) ->
     try rocksdb_close(DbRef) catch error:_ -> ok end,

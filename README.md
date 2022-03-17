@@ -20,8 +20,7 @@ is provided.
    2. [Getting started](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Getting_started)
    3. [Special features](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Special_features)
    4. [Customization](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Customization)
-   5. [Handling of errors in write operations](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Handling_of_errors_in_write_operations)
-   6. [Caveats](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Caveats)
+   5. [Caveats](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Caveats)
 2. [Mnesia backend plugins](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Mnesia_backend_plugins)
    1. [Background](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Background)
    2. [Design](https://github.com/aeternity/mnesia_rocksdb/blob/gh3553-refactor-plugin/doc/README.md#Design)
@@ -34,12 +33,15 @@ is provided.
 
 - rocksdb (included as dependency)
 - sext (included as dependency)
-- Erlang/OTP 21.0 or newer (https://github.com/erlang/otp)
+- Erlang/OTP 22.0 or newer (https://github.com/erlang/otp)
 
 ### Getting started
 
 Call `mnesia_rocksdb:register()` immediately after
 starting mnesia.
+
+Alternatively, call `mnesia_rocksdb:create_schema(Nodes)` in order
+to create an initial schema with the `rocksdb_copies` alias and the `mnesia_rocksdb` plugin registered.
 
 Put `{rocksdb_copies, [node()]}` into the table definitions of
 tables you want to be in RocksDB.
@@ -99,48 +101,6 @@ It is also possible, for larger databases, to produce a tuning parameter file.
 This is experimental, and mostly copied from `mnesia_leveldb`. Consult the
 source code in `mnesia_rocksdb_tuning.erl` and `mnesia_rocksdb_params.erl`.
 Contributions are welcome.
-
-### Handling of errors in write operations
-
-The RocksDB update operations return either `ok` or `{error, any()}`.
-Since the actual updates are performed after the`point-of-no-return',
-returning an `error` result will cause mnesia to behave unpredictably,
-since the operations are expected to simply work.
-
-#### Option 1: `on_write_error` ===
-
-An `on_write_error` option can be provided, per-table, in the `rocksdb_opts`
-user property (see [Customization](#customization) above).
-Supported values indicate at which level an error indication should be reported.
-Mnesia may save reported events in RAM, and may also print them,
-depending on the debug level (controlled with `mnesia:set_debug_level/1`).
-
-Mnesia debug levels are, in increasing detail, `none | verbose | debug | trace`
-The supported values for `on_write_error` are:
-
- | Value   | Saved at debug level | Printed at debug level | Action    |
- | ------- | -------------------- | ---------------------- | --------- |
- | debug   | unless none          | verbose, debug, trace  | ignore    |
- | verbose | unless none          | verbose, debug, trace  | ignore    |
- | warning | always               | always                 | ignore    |
- | error   | always               | always                 | exception |
- | fatal   | always               | always                 | core dump |
-
-#### Option 2: `on_write_error_store`
-
-An `on_write_error_store` option can be provided, per-table, in the `rocksdb_opts`
-user property (see [Customization](#customization) above).
-When set, the backend will use the value of the option as the name for an ETS table
-which is used as storage for runtime write errors. The table must be set up outside
-of the backend by the clients themselves.
-
-Entries to the table are in the form of a tuple `{{Table, Key}, Error, InsertedAt}`
-where `Table` refers to the Mnesia table name, `Key` is the primary key being used by Mnesia,
-`Error` is the error encountered by the backend, and `InsertedAt` refers to the time
-the error was encountered as system time in milliseconds.
-
-The backend will only insert entries and otherwise not manage the table. Thus, clients
-are expected to clean up the table during runtime to prevent memory leakage.
 
 ### Caveats
 

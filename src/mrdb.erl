@@ -216,7 +216,6 @@ release_snapshot(SHandle) ->
 
 -spec activity(activity_type(), alias(), fun( () -> Res )) -> Res.
 activity(Type, Alias, F) ->
-    ?log(debug, "Type = ~p, Alias = ~p, F = ~p", [Type, Alias, F]),
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
     Ctxt = case tx_type(Type) of
                {tx, TxOpts} ->
@@ -235,7 +234,6 @@ activity(Type, Alias, F) ->
     do_activity(F, Alias, Ctxt, false).
 
 do_activity(F, Alias, Ctxt, WithLock) ->
-    ?log(debug, "Alias = ~p", [Alias]),
     try run_f(F, Ctxt, WithLock, Alias) of
         Res ->
             try commit_and_pop(Res)
@@ -244,8 +242,7 @@ do_activity(F, Alias, Ctxt, WithLock) ->
                     do_activity(F, Alias, Ctxt, true)
             end
     catch
-        Cat:Err:ST when Cat==error; Cat==exit ->
-            ?log(debug, "Will abort - ~p:~p:~p", [Cat, Err, ST]),
+        Cat:Err when Cat==error; Cat==exit ->
             abort_and_pop(Cat, Err)
     end.
 
@@ -359,7 +356,6 @@ maybe_snapshot(#{no_snapshot := NoSnap} = Opts, DbRef) ->
     end.
 
 commit_and_pop(Res) ->
-    ?log(debug, "committing", []),
     #{type := Type, handle := H, db_ref := DbRef} = Ctxt = current_context(),
     case Type of
         tx ->
@@ -386,7 +382,6 @@ commit_and_pop(Res) ->
     end.
 
 abort_and_pop(Cat, Err) ->
-    ?log(debug, "aborting", []),
     %% We can pop the context right away, since there is no
     %% complex failure handling (like retry-on-busy) for rollback.
     #{type := Type, handle := H} = pop_ctxt(),
@@ -401,9 +396,7 @@ abort_and_pop(Cat, Err) ->
     end.
 
 rdb_transaction(DbRef, Opts) ->
-    Res = rocksdb:transaction(DbRef, Opts),
-    ?log(debug, "rocksdb:transaction(~p, ~p) -> ~p", [DbRef, Opts, Res]),
-    Res.
+    rocksdb:transaction(DbRef, Opts).
 
 rdb_transaction_commit_and_pop(H) ->
     try rdb_transaction_commit(H) 
@@ -412,17 +405,13 @@ rdb_transaction_commit_and_pop(H) ->
     end.
 
 rdb_transaction_commit(H) ->
-    ?log(debug, "rocksdb:transaction_commit(~p)", [H]),
     rocksdb:transaction_commit(H).
 
 rdb_transaction_rollback(H) ->
-    ?log(debug, "rocksdb:transaction_rollback(~p)", [H]),
     rocksdb:transaction_rollback(H).
 
 rdb_batch() ->
-    Res = rocksdb:batch(),
-    ?log(debug, "rocksdb:batch() -> ~p", [Res]),
-    Res.
+    rocksdb:batch().
 
 rdb_write_batch_and_pop(DbRef, H) ->
     %% TODO: derive write_opts(R)
@@ -432,7 +421,6 @@ rdb_write_batch_and_pop(DbRef, H) ->
     end.
 
 rdb_release_batch(H) ->
-    ?log(debug, "rocksdb:release_batch(~p)", [H]),
     rocksdb:release_batch(H).
 
 abort(Reason) ->
@@ -586,6 +574,8 @@ validate_obj(Obj, #{attr_pos := AP,
         _ ->
             abort(badarg)
     end;
+validate_obj({{_,_}} = Obj, #{name := {_,index,{_,ordered}}}) ->
+    Obj;
 validate_obj(_, _) ->
     abort(badarg).
 

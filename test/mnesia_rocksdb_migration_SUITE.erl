@@ -75,7 +75,8 @@ manual_migration_(Config) ->
 
 migrate_with_encoding_change(_Config) ->
     ok = create_tab(t, [{user_properties, [{mrdb_encoding, {sext,{object,term}}},
-                                           {rocksdb_standalone, true}]}
+                                           {rocksdb_standalone, true}]},
+                        {index,[val]}
                        ]),
     mrdb:insert(t, {t, <<"1">>, <<"a">>}),
     mrdb:insert(t, {t, <<"2">>, <<"b">>}),
@@ -108,12 +109,6 @@ migrate_with_encoding_change(_Config) ->
            [ok(file:list_dir(mnesia:system_info(directory)))]),
     ct:log("mnesia stopped", []),
     mnesia:stop(),
-    dbg:tracer(),
-    dbg:tp(mnesia_rocksdb,x),
-    dbg:tpl(mnesia_rocksdb_admin,x),
-    dbg:tpl(mnesia_rocksdb_lib,x),
-    dbg:tp(rocksdb,x),
-    dbg:p(all,[c]),
     mnesia:start(),
     ct:log("mnesia started", []),
     mnesia:info(),

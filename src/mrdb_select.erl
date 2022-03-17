@@ -50,7 +50,7 @@ select(Cont) ->
     end.
 
 fold(Ref, Fun, Acc, MS, Limit) ->
-    {AccKeys, F} =
+   {AccKeys, F} =
         if is_function(Fun, 3) ->
                 {true, fun({K, Obj}, Acc1) ->
                                Fun(Obj, K, Acc1)
@@ -72,9 +72,12 @@ fold_({L, Cont}, Fun, Acc) ->
 rdb_fold(Ref, Fun, Acc, Prefix, Limit) ->
     mrdb:with_rdb_iterator(
       Ref, fun(I) ->
-                   MovRes = rocksdb:iterator_move(I, first),
+                   MovRes = rocksdb:iterator_move(I, first(Ref)),
                    i_rdb_fold(MovRes, I, Prefix, Fun, Acc, Limit)
            end).
+
+first(#{vsn := 1}) -> ?DATA_START;
+first(_) -> first.
 
 i_rdb_fold({ok, K, V}, I, Pfx, Fun, Acc, Limit) when Limit > 0 ->
     case is_prefix(Pfx, K) of
