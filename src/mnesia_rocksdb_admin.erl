@@ -275,6 +275,12 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
+    dbg:tracer(),
+    dbg:tpl(?MODULE,x),
+    dbg:tp(mnesia_rocksdb_lib,x),
+    dbg:tp(rocksdb,x),
+    dbg:tp(mrdb,x),
+    dbg:p(all,call),
     Opts = default_opts(),
     process_flag(trap_exit, true),
     mnesia:subscribe({table, schema, simple}),
@@ -787,6 +793,46 @@ do_migrate_table(Alias, {Name, OldTRec, TRec0}, Backend, St) when is_map(TRec0) 
     io:fwrite("~p migrated, ~p ms~n", [Name, Time]),
     {{Name, {ok, Time}}, St1}.
 
+migrate_standalone_to_cf(OldTRec, #{name := T, alias := Alias} = TRec,
+                         #st{standalone = Ts} = St) ->
+    ChunkSz = chunk_size(TRec),
+    KeyPos = mnesia_rocksdb_lib:keypos(T),
+    migrate_to_cf(mrdb:select(OldTRec, [{'_',[],['$_']}], ChunkSz),
+                  TRec, OldTRec, KeyPos),
+    case maps:is_key({Alias,T}, Ts)
+         andalso table_is_empty(OldTRec) of
+        true ->
+            St1 = close_and_delete_standalone(OldTRec, St),
+            {ok, St1};
+        false ->
+            {ok, St}
+    end.
+
+migrate_to_cf({L, Cont}, Cf, DbRec, KeyPos) ->
+    mrdb:as_batch(
+      Cf,
+      fun(New) ->
+              mrdb:as_batch(
+                DbRec,
+                fun(Old) ->
+                        lists:foreach(
+                          fun(Obj) ->
+                                  mrdb:insert(New, Obj),
+                                  mrdb:delete(Old, element(KeyPos,Obj))
+                          end, L)
+                end)
+      end),
+    migrate_to_cf(cont(Cont), Cf, DbRec, KeyPos);
+migrate_to_cf('$end_of_table', _, _, _) ->
+    ok.
+
+cont('$end_of_table' = E) -> E;
+cont(F) when is_function(F,0) ->
+    F().
+
+chunk_size(_) ->
+    300.
+ 
 maybe_write_user_props(#{name := T, properties := #{user_properties := UPMap}}) ->
     %% The UP map is #{Key => Prop}, where element(1, Prop) == Key
     UPs = maps:values(UPMap),
@@ -950,8 +996,8 @@ do_open_standalone(CreateIfMissing, Alias, Name, Exists, MP, TRec0,
                    #st{standalone = Ts} = St) ->
     Opts = rocksdb_opts_from_trec(TRec0),
     case open_db_(MP, Alias, Opts, [], CreateIfMissing) of
-        {ok, #{ cf_info :=
-                #{{ext,Alias,"default"} := #{} = DbRec} = CfI }} ->
+        {ok, #{ cf_info := CfI }} ->
+	    DbRec = maps:get({ext,Alias,"default"}, CfI),
             ?log(debug, "successfully opened db ~p", [Name]),
             CfNames = maps:keys(CfI),
             DbRec1 = DbRec#{ cfs => CfNames,
@@ -1138,46 +1184,6 @@ check_encoding(E, #{properties := #{attributes := As}}) ->
 rocksdb_opts_from_trec(TRec) ->
     user_property(rocksdb_opts, TRec, []).
 
-migrate_standalone_to_cf(OldTRec, #{name := T, alias := Alias} = TRec,
-                         #st{standalone = Ts} = St) ->
-    ChunkSz = chunk_size(TRec),
-    KeyPos = mnesia_rocksdb_lib:keypos(T),
-    migrate_to_cf(mrdb:select(OldTRec, [{'_',[],['$_']}], ChunkSz),
-                  TRec, OldTRec, KeyPos),
-    case maps:is_key({Alias,T}, Ts)
-         andalso table_is_empty(OldTRec) of
-        true ->
-            St1 = close_and_delete_standalone(OldTRec, St),
-            {ok, St1};
-        false ->
-            {ok, St}
-    end.
-
-migrate_to_cf({L, Cont}, Cf, DbRec, KeyPos) ->
-    mrdb:as_batch(
-      Cf,
-      fun(New) ->
-              mrdb:as_batch(
-                DbRec,
-                fun(Old) ->
-                        lists:foreach(
-                          fun(Obj) ->
-                                  mrdb:insert(New, Obj),
-                                  mrdb:delete(Old, element(KeyPos,Obj))
-                          end, L)
-                end)
-      end),
-    migrate_to_cf(cont(Cont), Cf, DbRec, KeyPos);
-migrate_to_cf('$end_of_table', _, _, _) ->
-    ok.
-
-cont('$end_of_table' = E) -> E;
-cont(F) when is_function(F,0) ->
-    F().
-
-chunk_size(_) ->
-    300.
- 
 create_table_as_cf(Alias, Name, #{db_ref := DbRef} = R, St) ->
     CfName = tab_to_cf_name(Name),
     case rocksdb:create_column_family(DbRef, CfName, cfopts()) of
