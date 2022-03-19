@@ -55,6 +55,7 @@
         , batch_write/2  , batch_write/3
         , update_counter/3, update_counter/4
         , as_batch/2     , as_batch/3
+	, get_batch/1
         , snapshot/1
         , release_snapshot/1
         , first/1        , first/2
@@ -863,18 +864,113 @@ as_batch_(#{batch := _} = R, F, _) ->
     %% If already inside a batch, add to that batch (batches don't seem to nest)
     F(R);
 as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
-    {ok, Batch} = rdb_batch(),
-    try F(R#{batch => Batch}) of
+    BatchRef = get_batch_(DbRef),
+    try F(R#{batch => BatchRef}) of
         Res ->
-            case rocksdb:write_batch(DbRef, Batch, write_opts(R, Opts)) of
+            case write_batches(BatchRef, write_opts(R, Opts)) of
                 ok ->
                     Res;
                 {error, Reason} ->
                     abort(Reason)
             end
     after
-        rdb_release_batch(Batch)
+        release_batches(BatchRef)
     end.
+
+%% Rocksdb batches aren't tied to a specific DbRef until written.
+%% This can cause surprising problems if we're juggling multiple
+%% rocksdb instances (as we do if we have standalone tables).
+%% At the time of writing, all objects end up in the DbRef the batch
+%% is written to, albeit not necessarily in the intended column family.
+%% This will probably change, but no failure mode is really acceptable.
+%% The code below ensures that separate batches are created for each
+%% DbRef, under a unique reference stored in the pdict. When writing,
+%% all batches are written separately to the corresponding DbRef,
+%% and when releasing, all batches are released. This will not ensure
+%% atomicity, but there is no way in rocksdb to achieve atomicity
+%% across db instances. At least, data should end up where you expect.
+
+get_batch(#{db_ref := DbRef, batch := BatchRef}) ->
+    try {ok, get_batch_(DbRef, BatchRef)}
+    catch
+	error:Reason ->
+	    {error, Reason}
+    end;
+get_batch(_) ->
+    {error, badarg}.
+
+get_batch_(DbRef) ->
+    Ref = make_ref(),
+    {ok, Batch} = rocksdb:batch(),
+    put({mrdb_batch, Ref}, #{DbRef => Batch}),
+    Ref.
+
+get_batch_(DbRef, BatchRef) ->
+    Key = {mrdb_batch, BatchRef},
+    case get(Key) of
+	undefined ->
+	    error(stale_batch_ref);
+	#{DbRef := Batch} ->
+	    Batch;
+	Map ->
+	    {ok, Batch} = rocksdb:batch(),
+	    put(Key, Map#{DbRef => Batch}),
+	    Batch
+    end.
+
+write_batches(BatchRef, Opts) ->
+    case get({mrdb_batch, BatchRef}) of
+	undefined ->
+	    error(stale_batch_ref);
+	Map ->
+	    %% Some added complication since we deal with potentially
+	    %% multiple DbRefs, and will want to return errors.
+	    ret_batch_write_acc(
+	      maps:fold(
+		fun(DbRef, Batch, Acc) ->
+			case rocksdb:write_batch(DbRef, Batch, Opts) of
+			    ok ->
+				Acc;
+			    {error,E} ->
+				acc_batch_write_error(E, DbRef, Acc)
+		      end
+		end, ok, Map))
+    end.
+
+ret_batch_write_acc(ok) ->
+    ok;
+ret_batch_write_acc(Es) when is_list(Es) ->
+    {error, lists:reverse(Es)}.
+
+acc_batch_write_error(E, DbRef, ok) ->
+    [{DbRef, E}];
+
+acc_batch_write_error(E, DbRef, Es) when is_list(Es) ->
+    [{DbRef, E}|Es].
+
+release_batches(BatchRef) ->
+    case get({mrdb_batch, BatchRef}) of
+	undefined ->
+	    error(stale_batch_ref);
+	Map ->
+	    maps_foreach(
+	      fun(_, Batch) ->
+		      rocksdb:release_batch(Batch)
+	      end, Map),
+	    erase(BatchRef),
+	    ok
+    end.
+
+%% maps:foreach/2 doesn't exist in OTP 22 ...
+maps_foreach(F, Map) ->
+    I = maps:iterator(Map),
+    maps_foreach_(F, maps:next(I)).
+
+maps_foreach_(F, {K, V, I}) ->
+    F(K, V),
+    maps_foreach_(F, maps:next(I));
+maps_foreach_(_, none) ->
+    ok.
 
 %% Corresponding to `rocksdb:write()`, renamed to avoid confusion with
 %% `mnesia:write()`, which has entirely different semantics.
@@ -1205,7 +1301,10 @@ rdb_put(R, K, V) -> rdb_put(R, K, V, []).
 rdb_put(R, K, V, Opts) ->
     rdb_put_(R, K, V, write_opts(R, Opts)).
 
-rdb_put_(#{batch := Batch, cf_handle := CfH}, K, V, _Opts) ->
+rdb_put_(#{batch := BatchRef,
+	   db_ref := DbRef,
+	   cf_handle := CfH}, K, V, _Opts) ->
+    Batch = get_batch_(DbRef, BatchRef),
     rocksdb:batch_put(Batch, CfH, K, V);
 rdb_put_(#{tx_handle := TxH, cf_handle := CfH}, K, V, _Opts) ->
     rocksdb:transaction_put(TxH, CfH, K, V);
@@ -1227,7 +1326,10 @@ rdb_delete(R, K) -> rdb_delete(R, K, []).
 rdb_delete(R, K, Opts) ->
     rdb_delete_(R, K, write_opts(R, Opts)).
 
-rdb_delete_(#{batch := Batch, cf_handle := CfH}, K, _Opts) ->
+rdb_delete_(#{batch := BatchRef,
+	      db_ref := DbRef,
+	      cf_handle := CfH}, K, _Opts) ->
+    Batch = get_batch_(DbRef, BatchRef),
     rocksdb:batch_delete(Batch, CfH, K);
 rdb_delete_(#{tx_handle := TxH, cf_handle := CfH}, K, _Opts) ->
     rocksdb:transaction_delete(TxH, CfH, K);

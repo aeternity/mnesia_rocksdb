@@ -275,12 +275,6 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    dbg:tracer(),
-    dbg:tpl(?MODULE,x),
-    dbg:tp(mnesia_rocksdb_lib,x),
-    dbg:tp(rocksdb,x),
-    dbg:tp(mrdb,x),
-    dbg:p(all,call),
     Opts = default_opts(),
     process_flag(trap_exit, true),
     mnesia:subscribe({table, schema, simple}),
@@ -405,7 +399,7 @@ handle_info({mnesia_table_event, Event}, St) ->
                 error ->
                     ?log(debug, "No Cf found (~p)", [Tab]),
                     {noreply, St};
-                #{alias := Alias} = Cf ->
+                #{} = Cf ->
                     ?log(debug, "Located Cf: ~p", [Cf]),
                     case try_refresh_cf(Cf, Props, St) of
                         false ->
