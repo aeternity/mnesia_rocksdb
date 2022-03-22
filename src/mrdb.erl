@@ -64,7 +64,7 @@
         , last/1         , last/2
         , select/2       , select/3
         , select/1
-        , fold/4         , fold/5
+        , fold/3         , fold/4      , fold/5
         , rdb_fold/4     , rdb_fold/5
         , write_info/3
         , read_info/2
@@ -1098,6 +1098,9 @@ match_delete_({L, Cont}, Ref) ->
     match_delete_(select(Cont), Ref);
 match_delete_('$end_of_table', _) ->
     ok.
+
+fold(Tab, Fun, Acc) ->
+    fold(Tab, Fun, Acc, [{'_', [], ['$_']}]).
 
 fold(Tab, Fun, Acc, MatchSpec) ->
     fold(Tab, Fun, Acc, MatchSpec, infinity).
