@@ -33,16 +33,11 @@
          code_change/3]).
 
 -include("mnesia_rocksdb_tuning.hrl").
+-include("mnesia_rocksdb_int.hrl").
 
 -define(KB, 1024).
 -define(MB, 1024 * 1024).
 -define(GB, 1024 * 1024 * 1024).
-
--ifdef(DEBUG).
--define(dbg(Fmt, Args), io:fwrite(user,"~p:~p: "++(Fmt),[?MODULE,?LINE|Args])).
--else.
--define(dbg(Fmt, Args), ok).
--endif.
 
 lookup(Tab, Default) ->
     try ets:lookup(?MODULE, Tab) of
@@ -113,21 +108,21 @@ store_params(Params) ->
     NTabs = length(Params),
     Env0= mnesia_rocksdb_tuning:describe_env(),
     Env = Env0#tuning{n_tabs = NTabs},
-    ?dbg("Env = ~p~n", [Env]),
+    ?log(debug, "Env = ~p~n", [Env]),
     TotalFiles = lists:sum([mnesia_rocksdb_tuning:max_files(Sz) ||
                                {_, Sz} <- Params]),
-    ?dbg("TotalFiles = ~p~n", [TotalFiles]),
+    ?log(debug, "TotalFiles = ~p~n", [TotalFiles]),
     MaxFs = Env#tuning.max_files,
-    ?dbg("MaxFs = ~p~n", [MaxFs]),
+    ?log(debug, "MaxFs = ~p~n", [MaxFs]),
     FsHeadroom = MaxFs * 0.6,
-    ?dbg("FsHeadroom = ~p~n", [FsHeadroom]),
+    ?log(debug, "FsHeadroom = ~p~n", [FsHeadroom]),
     FilesFactor = if TotalFiles =< FsHeadroom ->
                           1;  % don't have to scale down
                      true ->
                           FsHeadroom / TotalFiles
                   end,
     Env1 = Env#tuning{files_factor = FilesFactor},
-    ?dbg("Env1 = ~p~n",            [Env1]),
+    ?log(debug, "Env1 = ~p~n",            [Env1]),
     lists:foreach(
       fun({Tab, Sz}) when is_atom(Tab);
                           is_atom(element(1,Tab)),

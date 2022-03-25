@@ -235,7 +235,7 @@ decode_key(Key) ->
     mnesia_rocksdb_lib:decode_key(Key, sext).
 
 decode_key(Key, Metadata) when is_map(Metadata) ->
-    mensia_rocksdb_lib:decode_key(Key, Metadata).
+    mnesia_rocksdb_lib:decode_key(Key, Metadata).
 
 decode_val(Val) ->
     mnesia_rocksdb_lib:decode_val(Val).
@@ -247,16 +247,15 @@ decode_val(Val, Key, Metadata) when is_map(Metadata); is_reference(Metadata) ->
 %% DEBUG API
 %% ----------------------------------------------------------------------------
 
-%% A debug function that shows the rocksdb table content
+%% @doc A debug function that shows the rocksdb table content
 show_table(Tab) ->
     show_table(Tab, 100).
 
 show_table(Tab, Limit) ->
-    Ref = mrdb:get_ref(Tab),
-    mrdb:with_iterator(Ref, fun(I) ->
-                                    i_show_table(I, first, Limit, Ref)
-                            end).
-%% PRIVATE
+    Ref = get_ref(Tab),
+    mrdb:with_rdb_iterator(Ref, fun(I) ->
+					i_show_table(I, first, Limit, Ref)
+				end).
 
 i_show_table(_, _, 0, _) ->
     {error, skipped_some};
@@ -461,7 +460,7 @@ close_table(Alias, Tab) ->
 close_table_(Alias, Tab) ->
     case opt_call(Alias, Tab, close_table) of
         {error, noproc} ->
-            ?dbg("~p: close_table_(~p) -> noproc~n",
+            ?log(debug, "~p: close_table_(~p) -> noproc~n",
                  [self(), Tab]),
             ok;
         {ok, _} ->
@@ -494,7 +493,7 @@ pp_pos([{file,_},{line,L}]) ->
 -endif.
 
 sync_close_table(Alias, Tab) ->
-    ?dbg("~p: sync_close_table(~p, ~p);~n Trace: ~s~n",
+    ?log(debug, "~p: sync_close_table(~p, ~p);~n Trace: ~s~n",
          [self(), Alias, Tab, pp_stack()]),
     close_table(Alias, Tab).
 
@@ -825,7 +824,7 @@ handle_cast(_, St) ->
     {noreply, St}.
 
 handle_info({'EXIT', _, _} = _EXIT, St) ->
-    ?dbg("rocksdb owner received ~p~n", [_EXIT]),
+    ?log(debug, "rocksdb owner received ~p~n", [_EXIT]),
     {noreply, St};
 handle_info(_, St) ->
     {noreply, St}.
@@ -845,11 +844,11 @@ opt_call(Alias, Tab, Req) ->
     ProcName = proc_name(Alias, Tab),
     case whereis(ProcName) of
         undefined ->
-            ?dbg("proc_name(~p, ~p): ~p; NO PROCESS~n",
+            ?log(debug, "proc_name(~p, ~p): ~p; NO PROCESS~n",
                  [Alias, Tab, ProcName]),
             {error, noproc};
         Pid when is_pid(Pid) ->
-            ?dbg("proc_name(~p, ~p): ~p; Pid = ~p~n",
+            ?log(debug, "proc_name(~p, ~p): ~p; Pid = ~p~n",
                  [Alias, Tab, ProcName, Pid]),
             {ok, do_call(Pid, Req)}
     end.

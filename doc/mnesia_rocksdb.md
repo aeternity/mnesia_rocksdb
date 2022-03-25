@@ -136,7 +136,7 @@ table_type() = set | ordered_set | bag
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#check_definition-4">check_definition/4</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#default_alias-0">default_alias/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fixtable-3">fixtable/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#index_is_consistent-3">index_is_consistent/3</a></td><td></td></tr><tr><td valign="top"><a href="#info-3">info/3</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#init_backend-0">init_backend/0</a></td><td>Called by mnesia_schema in order to intialize the backend.</td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#is_index_consistent-2">is_index_consistent/2</a></td><td></td></tr><tr><td valign="top"><a href="#ix_prefixes-3">ix_prefixes/3</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-4">load_table/4</a></td><td></td></tr><tr><td valign="top"><a href="#lookup-3">lookup/3</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-3">match_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#real_suffixes-0">real_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#receive_data-5">receive_data/5</a></td><td></td></tr><tr><td valign="top"><a href="#receive_done-4">receive_done/4</a></td><td></td></tr><tr><td valign="top"><a href="#receiver_first_message-4">receiver_first_message/4</a></td><td></td></tr><tr><td valign="top"><a href="#register-0">register/0</a></td><td>Equivalent to <a href="#register-1"><tt>register(rocksdb_copies)</tt></a>.</td></tr><tr><td valign="top"><a href="#register-1">register/1</a></td><td>Convenience function for registering a mnesia_rocksdb backend plugin.</td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#repair_continuation-2">repair_continuation/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr><tr><td valign="top"><a href="#semantics-2">semantics/2</a></td><td></td></tr><tr><td valign="top"><a href="#sender_handle_info-5">sender_handle_info/5</a></td><td></td></tr><tr><td valign="top"><a href="#sender_init-4">sender_init/4</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-1">show_table/1</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-2">show_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#slot-3">slot/3</a></td><td></td></tr><tr><td valign="top"><a href="#start_proc-6">start_proc/6</a></td><td></td></tr><tr><td valign="top"><a href="#sync_close_table-2">sync_close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr><tr><td valign="top"><a href="#tmp_suffixes-0">tmp_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr><tr><td valign="top"><a href="#validate_key-6">validate_key/6</a></td><td></td></tr><tr><td valign="top"><a href="#validate_record-6">validate_record/6</a></td><td></td></tr></table>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#check_definition-4">check_definition/4</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_schema-1">create_schema/1</a></td><td></td></tr><tr><td valign="top"><a href="#create_schema-2">create_schema/2</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#decode_key-1">decode_key/1</a></td><td></td></tr><tr><td valign="top"><a href="#decode_key-2">decode_key/2</a></td><td></td></tr><tr><td valign="top"><a href="#decode_val-1">decode_val/1</a></td><td></td></tr><tr><td valign="top"><a href="#decode_val-3">decode_val/3</a></td><td></td></tr><tr><td valign="top"><a href="#default_alias-0">default_alias/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#encode_key-1">encode_key/1</a></td><td></td></tr><tr><td valign="top"><a href="#encode_key-2">encode_key/2</a></td><td></td></tr><tr><td valign="top"><a href="#encode_val-1">encode_val/1</a></td><td></td></tr><tr><td valign="top"><a href="#encode_val-2">encode_val/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fixtable-3">fixtable/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#index_is_consistent-3">index_is_consistent/3</a></td><td></td></tr><tr><td valign="top"><a href="#info-3">info/3</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#init_backend-0">init_backend/0</a></td><td>Called by mnesia_schema in order to intialize the backend.</td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#is_index_consistent-2">is_index_consistent/2</a></td><td></td></tr><tr><td valign="top"><a href="#ix_listvals-3">ix_listvals/3</a></td><td></td></tr><tr><td valign="top"><a href="#ix_prefixes-3">ix_prefixes/3</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-4">load_table/4</a></td><td></td></tr><tr><td valign="top"><a href="#lookup-3">lookup/3</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-3">match_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#real_suffixes-0">real_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#receive_data-5">receive_data/5</a></td><td></td></tr><tr><td valign="top"><a href="#receive_done-4">receive_done/4</a></td><td></td></tr><tr><td valign="top"><a href="#receiver_first_message-4">receiver_first_message/4</a></td><td></td></tr><tr><td valign="top"><a href="#register-0">register/0</a></td><td>Equivalent to <a href="#register-1"><tt>register(rocksdb_copies)</tt></a>.</td></tr><tr><td valign="top"><a href="#register-1">register/1</a></td><td>Convenience function for registering a mnesia_rocksdb backend plugin.</td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#repair_continuation-2">repair_continuation/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr><tr><td valign="top"><a href="#semantics-2">semantics/2</a></td><td></td></tr><tr><td valign="top"><a href="#sender_handle_info-5">sender_handle_info/5</a></td><td></td></tr><tr><td valign="top"><a href="#sender_init-4">sender_init/4</a></td><td></td></tr><tr><td valign="top"><a href="#show_table-1">show_table/1</a></td><td>A debug function that shows the rocksdb table content.</td></tr><tr><td valign="top"><a href="#show_table-2">show_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#slot-3">slot/3</a></td><td></td></tr><tr><td valign="top"><a href="#start_proc-6">start_proc/6</a></td><td></td></tr><tr><td valign="top"><a href="#sync_close_table-2">sync_close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr><tr><td valign="top"><a href="#tmp_suffixes-0">tmp_suffixes/0</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr><tr><td valign="top"><a href="#validate_key-6">validate_key/6</a></td><td></td></tr><tr><td valign="top"><a href="#validate_record-6">validate_record/6</a></td><td></td></tr></table>
 
 
 <a name="functions"></a>
@@ -167,11 +167,47 @@ table_type() = set | ordered_set | bag
 
 `code_change(FromVsn, St, Extra) -> any()`
 
+<a name="create_schema-1"></a>
+
+### create_schema/1 ###
+
+`create_schema(Nodes) -> any()`
+
+<a name="create_schema-2"></a>
+
+### create_schema/2 ###
+
+`create_schema(Nodes, Aliases) -> any()`
+
 <a name="create_table-3"></a>
 
 ### create_table/3 ###
 
 `create_table(Alias, Tab, Props) -> any()`
+
+<a name="decode_key-1"></a>
+
+### decode_key/1 ###
+
+`decode_key(Key) -> any()`
+
+<a name="decode_key-2"></a>
+
+### decode_key/2 ###
+
+`decode_key(Key, Metadata) -> any()`
+
+<a name="decode_val-1"></a>
+
+### decode_val/1 ###
+
+`decode_val(Val) -> any()`
+
+<a name="decode_val-3"></a>
+
+### decode_val/3 ###
+
+`decode_val(Val, Key, Metadata) -> any()`
 
 <a name="default_alias-0"></a>
 
@@ -190,6 +226,30 @@ table_type() = set | ordered_set | bag
 ### delete_table/2 ###
 
 `delete_table(Alias, Tab) -> any()`
+
+<a name="encode_key-1"></a>
+
+### encode_key/1 ###
+
+`encode_key(Key) -> any()`
+
+<a name="encode_key-2"></a>
+
+### encode_key/2 ###
+
+`encode_key(Key, Metadata) -> any()`
+
+<a name="encode_val-1"></a>
+
+### encode_val/1 ###
+
+`encode_val(Val) -> any()`
+
+<a name="encode_val-2"></a>
+
+### encode_val/2 ###
+
+`encode_val(Val, Metadata) -> any()`
 
 <a name="first-2"></a>
 
@@ -277,6 +337,12 @@ where Opts are parameters for the supervised child:
 
 `is_index_consistent(Alias, X2) -> any()`
 
+<a name="ix_listvals-3"></a>
+
+### ix_listvals/3 ###
+
+`ix_listvals(Tab, Pos, Obj) -> any()`
+
 <a name="ix_prefixes-3"></a>
 
 ### ix_prefixes/3 ###
@@ -317,7 +383,7 @@ where Opts are parameters for the supervised child:
 
 ### prev/3 ###
 
-`prev(Alias, Tab, Key0) -> any()`
+`prev(Alias, Tab, Key) -> any()`
 
 <a name="real_suffixes-0"></a>
 
@@ -348,7 +414,7 @@ where Opts are parameters for the supervised child:
 ### register/0 ###
 
 <pre><code>
-register() -&gt; ok
+register() -&gt; {ok, <a href="#type-alias">alias()</a>} | {error, term()}
 </code></pre>
 <br />
 
@@ -397,7 +463,7 @@ in the same way as `ram_copies` etc. The default alias is `rocksdb_copies`.
 
 ### select/4 ###
 
-`select(Alias, Tab, Ms, Limit) -> any()`
+`select(Alias, IxTab, Ms, Limit) -> any()`
 
 <a name="semantics-2"></a>
 
@@ -422,6 +488,8 @@ in the same way as `ram_copies` etc. The default alias is `rocksdb_copies`.
 ### show_table/1 ###
 
 `show_table(Tab) -> any()`
+
+A debug function that shows the rocksdb table content
 
 <a name="show_table-2"></a>
 

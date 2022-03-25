@@ -76,7 +76,7 @@ rdb_fold(Ref, Fun, Acc, Prefix, Limit) ->
                    i_rdb_fold(MovRes, I, Prefix, Fun, Acc, Limit)
            end).
 
-first(#{vsn := 1}) -> ?DATA_START;
+first(#{vsn := 1}) -> <<?DATA_START>>;
 first(_) -> first.
 
 i_rdb_fold({ok, K, V}, I, Pfx, Fun, Acc, Limit) when Limit > 0 ->

@@ -18,7 +18,7 @@
 %%  , tx_handle  := <Rocksdb transaction handle, if any>
 %%  , attr_pos   := #{AttrName := Pos}
 %%  , mode       := <Set to 'mnesia' for mnesia access flows>
-%%  , properties := <Mnesia table props in map format
+%%  , properties := <Mnesia table props in map format>
 %%  , type       := column_family | standalone
 %%  }
 %% '''
@@ -37,6 +37,7 @@
 
 -export([ get_ref/1
         , ensure_ref/1   , ensure_ref/2
+	, alias_of/1
         , new_tx/1       , new_tx/2
         , tx_ref/2
         , tx_commit/1
@@ -55,7 +56,7 @@
         , batch_write/2  , batch_write/3
         , update_counter/3, update_counter/4
         , as_batch/2     , as_batch/3
-	, get_batch/1
+        , get_batch/1
         , snapshot/1
         , release_snapshot/1
         , first/1        , first/2
@@ -102,7 +103,6 @@
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
--include_lib("hut/include/hut.hrl").
 
 -type tab_name()  :: atom().
 -type alias()     :: atom().
@@ -200,21 +200,58 @@
                    , ref :: db_ref() }).
 
 -type mrdb_iterator() :: #mrdb_iter{}.
-
+%% @private
+%% Used by `trace_runner' to set up trace patterns.
+%%
 patterns() ->
     [{?MODULE, F, A, []} || {F, A} <- ?MODULE:module_info(exports),
                             F =/= module_info andalso
                             F =/= patterns].
 
--spec snapshot(alias()) -> {ok, snapshot_handle()} | error().
-snapshot(Alias) ->
-    #{db_ref := DbRef} = ensure_ref({admin, Alias}),
-    rocksdb:snapshot(DbRef).
+%% @doc Create a snapshot of the database instance associated with the
+%% table reference, table name or alias.
+%%
+%% Snapshots provide consistent read-only views over the entire state of the key-value store.
+%% @end
+-spec snapshot(alias() | ref_or_tab()) -> {ok, snapshot_handle()} | error().
+snapshot(Name) when is_atom(Name) ->
+    case mnesia_rocksdb_admin:get_ref(Name, error) of
+	error ->
+	    snapshot(get_ref({admin, Name}));
+	Ref ->
+	    snapshot(Ref)
+    end;
+snapshot(#{db_ref := DbRef}) ->
+    rocksdb:snapshot(DbRef);
+snapshot(_) ->
+    {error, unknown}.
 
+%% @doc release a snapshot created by {@link snapshot/1}.
 -spec release_snapshot(snapshot_handle()) -> ok | error().
 release_snapshot(SHandle) ->
     rocksdb:release_snapshot(SHandle).
 
+%% @doc Run an activity (similar to {@link //mnesia/mnesia:activity/2}).
+%%
+%% Supported activity types are:
+%% <ul>
+%% <li> `transaction' - An optimistic `rocksdb' transaction</li>
+%% <li> `{tx, TxOpts}' - A `rocksdb' transaction with sligth modifications</li>
+%% <li> `batch' - A `rocksdb' batch operation</li>
+%% </ul>
+%% 
+%% By default, transactions are combined with a snapshot with 1 retry.
+%% The snapshot ensures that writes from concurrent transactions don't leak into the transaction context.
+%% A transaction will be retried if it detects that the commit set conflicts with recent changes.
+%% A mutex is used to ensure that only one of potentially conflicting `mrdb' transactions is run at a time.
+%% The re-run transaction may still fail, if new transactions, or non-transaction writes interfere with
+%% the commit set. It will then be re-run again, until the retry count is exhausted.
+%%
+%% Valid `TxOpts' are `#{no_snapshot => boolean(), retries => retries()}'.
+%%
+%% To simplify code adaptation, `tx | transaction | sync_transaction' are synonyms, and
+%% `batch | async_dirty | sync_dirty' are synonyms.
+%% @end
 -spec activity(activity_type(), alias(), fun( () -> Res )) -> Res.
 activity(Type, Alias, F) ->
     #{db_ref := DbRef} = ensure_ref({admin, Alias}),
@@ -424,6 +461,7 @@ rdb_write_batch_and_pop(DbRef, H) ->
 rdb_release_batch(H) ->
     rocksdb:release_batch(H).
 
+%% @doc Aborts an ongoing {@link activity/2}
 abort(Reason) ->
     erlang:error({mrdb_abort, Reason}).
 
@@ -847,16 +885,33 @@ filter_objs([H|T], Val, ValsF) ->
         false -> filter_objs(T, Val, ValsF)
     end.
 
-%% decode_raw_key(RK, #{semantics := bag, vsn := V}) when V =< 2 ->
-%%     KSz = byte_size(RK) - (?BAG_CNT div 8),
-%%     <<K:KSz/binary, _:?BAG_CNT>> = RK,
-%%     decode_key(K, sext);
-%% decode_raw_key(RK, Ref) ->
-%%     decode_key(RK, Ref).
+%% @doc Returns the alias of a given table or table reference.
+-spec alias_of(ref_or_tab()) -> alias().
+alias_of(Tab) ->
+    #{alias := Alias} = ensure_ref(Tab),
+    Alias.
 
+%% @doc Creates a `rocksdb' batch context and executes the fun `F' in it.
+%%
+%% %% Rocksdb batches aren't tied to a specific DbRef until written.
+%% This can cause surprising problems if we're juggling multiple
+%% rocksdb instances (as we do if we have standalone tables).
+%% At the time of writing, all objects end up in the DbRef the batch
+%% is written to, albeit not necessarily in the intended column family.
+%% This will probably change, but no failure mode is really acceptable.
+%% The code below ensures that separate batches are created for each
+%% DbRef, under a unique reference stored in the pdict. When writing,
+%% all batches are written separately to the corresponding DbRef,
+%% and when releasing, all batches are released. This will not ensure
+%% atomicity, but there is no way in rocksdb to achieve atomicity
+%% across db instances. At least, data should end up where you expect.
+%% 
+%% @end
+-spec as_batch(ref_or_tab(), fun( (db_ref()) -> Res )) -> Res.
 as_batch(Tab, F) ->
     as_batch(Tab, F, []).
 
+%% @doc as {@link as_batch/2}, but with the ability to pass `Opts' to `rocksdb:write_batch/2'
 as_batch(Tab, F, Opts) when is_function(F, 1), is_list(Opts) ->
     as_batch_(ensure_ref(Tab), F, Opts).
 
@@ -877,18 +932,6 @@ as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
         release_batches(BatchRef)
     end.
 
-%% Rocksdb batches aren't tied to a specific DbRef until written.
-%% This can cause surprising problems if we're juggling multiple
-%% rocksdb instances (as we do if we have standalone tables).
-%% At the time of writing, all objects end up in the DbRef the batch
-%% is written to, albeit not necessarily in the intended column family.
-%% This will probably change, but no failure mode is really acceptable.
-%% The code below ensures that separate batches are created for each
-%% DbRef, under a unique reference stored in the pdict. When writing,
-%% all batches are written separately to the corresponding DbRef,
-%% and when releasing, all batches are released. This will not ensure
-%% atomicity, but there is no way in rocksdb to achieve atomicity
-%% across db instances. At least, data should end up where you expect.
 
 get_batch(#{db_ref := DbRef, batch := BatchRef}) ->
     try {ok, get_batch_(DbRef, BatchRef)}

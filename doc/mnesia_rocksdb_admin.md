@@ -24,6 +24,36 @@ alias() = atom()
 
 
 
+### <a name="type-backend">backend()</a> ###
+
+
+<pre><code>
+backend() = #{db_ref =&gt; <a href="#type-db_ref">db_ref()</a>, cf_info =&gt; #{<a href="#type-table">table()</a> =&gt; <a href="#type-cf">cf()</a>}}
+</code></pre>
+
+
+
+
+### <a name="type-cf">cf()</a> ###
+
+
+<pre><code>
+cf() = <a href="http://www.erlang.org/doc/man/mrdb.html#type-db_ref">mrdb:db_ref()</a>
+</code></pre>
+
+
+
+
+### <a name="type-db_ref">db_ref()</a> ###
+
+
+<pre><code>
+db_ref() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.md#type-db_handle">rocksdb:db_handle()</a>
+</code></pre>
+
+
+
+
 ### <a name="type-gen_server_noreply">gen_server_noreply()</a> ###
 
 
@@ -78,7 +108,7 @@ reply() = any()
 
 
 <pre><code>
-req() = {create_table, <a href="#type-table">table()</a>, <a href="#type-properties">properties()</a>} | {delete_table, <a href="#type-table">table()</a>} | {get_ref, <a href="#type-table">table()</a>} | {add_aliases, [<a href="#type-alias">alias()</a>]} | {remove_aliases, [<a href="#type-alias">alias()</a>]}
+req() = {create_table, <a href="#type-table">table()</a>, <a href="#type-properties">properties()</a>} | {delete_table, <a href="#type-table">table()</a>} | {load_table, <a href="#type-table">table()</a>} | {related_resources, <a href="#type-table">table()</a>} | {get_ref, <a href="#type-table">table()</a>} | {add_aliases, [<a href="#type-alias">alias()</a>]} | {write_table_property, <a href="#type-tabname">tabname()</a>, tuple()} | {remove_aliases, [<a href="#type-alias">alias()</a>]} | {migrate, [{<a href="#type-tabname">tabname()</a>, map()}]} | {prep_close, <a href="#type-table">table()</a>} | {close_table, <a href="#type-table">table()</a>}
 </code></pre>
 
 
@@ -88,7 +118,7 @@ req() = {create_table, <a href="#type-table">table()</a>, <a href="#type-propert
 
 
 <pre><code>
-st() = #st{}
+st() = #st{backends = #{<a href="#type-alias">alias()</a> =&gt; <a href="#type-backend">backend()</a>}, standalone = #{{<a href="#type-alias">alias()</a>, <a href="#type-table">table()</a>} =&gt; <a href="#type-cf">cf()</a>}, default_opts = [{atom(), term()}]}
 </code></pre>
 
 
@@ -116,7 +146,7 @@ tabname() = atom()
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_started-0">ensure_started/0</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-1">get_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-2">get_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-2">load_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#prep_close-2">prep_close/2</a></td><td></td></tr><tr><td valign="top"><a href="#related_resources-2">related_resources/2</a></td><td></td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#request_ref-2">request_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#start_link-0">start_link/0</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr></table>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr><tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_started-0">ensure_started/0</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-1">get_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-2">get_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr><tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr><tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr><tr><td valign="top"><a href="#load_table-2">load_table/2</a></td><td></td></tr><tr><td valign="top"><a href="#meta-0">meta/0</a></td><td></td></tr><tr><td valign="top"><a href="#migrate_standalone-2">migrate_standalone/2</a></td><td></td></tr><tr><td valign="top"><a href="#prep_close-2">prep_close/2</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-1">read_info/1</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-2">read_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-4">read_info/4</a></td><td></td></tr><tr><td valign="top"><a href="#related_resources-2">related_resources/2</a></td><td></td></tr><tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr><tr><td valign="top"><a href="#request_ref-2">request_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#start_link-0">start_link/0</a></td><td></td></tr><tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr><tr><td valign="top"><a href="#write_info-4">write_info/4</a></td><td></td></tr><tr><td valign="top"><a href="#write_table_property-3">write_table_property/3</a></td><td></td></tr></table>
 
 
 <a name="functions"></a>
@@ -161,7 +191,7 @@ delete_table(Alias::<a href="#type-alias">alias()</a>, Name::<a href="#type-tabn
 ### ensure_started/0 ###
 
 <pre><code>
-ensure_started() -&gt; pid()
+ensure_started() -&gt; ok
 </code></pre>
 <br />
 
@@ -216,11 +246,41 @@ handle_info(Msg::any(), St::<a href="#type-st">st()</a>) -&gt; <a href="#type-ge
 
 `load_table(Alias, Name) -> any()`
 
+<a name="meta-0"></a>
+
+### meta/0 ###
+
+`meta() -> any()`
+
+<a name="migrate_standalone-2"></a>
+
+### migrate_standalone/2 ###
+
+`migrate_standalone(Alias, Tabs) -> any()`
+
 <a name="prep_close-2"></a>
 
 ### prep_close/2 ###
 
 `prep_close(Alias, Tab) -> any()`
+
+<a name="read_info-1"></a>
+
+### read_info/1 ###
+
+`read_info(TRec) -> any()`
+
+<a name="read_info-2"></a>
+
+### read_info/2 ###
+
+`read_info(Alias, Tab) -> any()`
+
+<a name="read_info-4"></a>
+
+### read_info/4 ###
+
+`read_info(Alias, Tab, K, Default) -> any()`
 
 <a name="related_resources-2"></a>
 
@@ -250,5 +310,17 @@ handle_info(Msg::any(), St::<a href="#type-st">st()</a>) -&gt; <a href="#type-ge
 
 ### terminate/2 ###
 
-`terminate(Reason, St) -> any()`
+`terminate(X1, St) -> any()`
+
+<a name="write_info-4"></a>
+
+### write_info/4 ###
+
+`write_info(Alias, Tab, K, V) -> any()`
+
+<a name="write_table_property-3"></a>
+
+### write_table_property/3 ###
+
+`write_table_property(Alias, Tab, Prop) -> any()`
 
