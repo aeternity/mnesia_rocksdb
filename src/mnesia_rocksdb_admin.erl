@@ -7,7 +7,7 @@
         , remove_aliases/1
         , create_table/3           %% (Alias, Name, Props) -> {ok, Ref} | error()
         , delete_table/2           %% (Alias, Name) -> ok
-        , load_table/2             %% (Alias, Name) -> ok
+        , load_table/3             %% (Alias, Name, Props) -> ok
         , related_resources/2      %% (Alias, Name) -> [RelatedTab]
         , prep_close/2             %% (Alias, Tab) -> ok
         , get_ref/1                %% (Name) -> Ref | abort()
@@ -143,8 +143,8 @@ create_table(Alias, Name, Props) ->
 delete_table(Alias, Name) ->
     call(Alias, {delete_table, Name}).
 
-load_table(Alias, Name) ->
-    call(Alias, {load_table, Name}).
+load_table(Alias, Name, Props) ->
+    call(Alias, {load_table, Name, Props}).
 
 related_resources(Alias, Name) ->
     if is_atom(Name) ->
@@ -463,24 +463,32 @@ handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
         {error, _} = Error ->
             {reply, Error, St}
     end;
-handle_req(Alias, {load_table, Name}, Backend, St) ->
+handle_req(Alias, {load_table, Name, Props}, Backend, St) ->
+    ?log(debug, "load_table, ~p, ~p", [Name, Props]),
+    try
     case find_cf(Alias, Name, Backend, St) of
         {ok, #{status := open}} ->
             ?log(info, "load_table(~p) when table already loaded", [Name]),
             {reply, ok, St};
-        {ok, TRec} ->
-            case create_table_from_trec(Alias, Name, TRec, Backend, St) of
-                {ok, TRec1, St1} ->
-                    TRec2 = TRec1#{status => open},
-                    St2 = update_cf(Alias, Name, TRec2, St1),
-                    ?log(debug, "Table loaded ~p", [Name]),
-                    put_pt(Name, TRec2),
-                    {reply, ok, St2};
+        {ok, #{status := created} = TRec} ->
+            handle_load_table_req(Alias, Name, TRec, Backend, St);
+        _ ->
+            ?log(debug, "load_table (~p) without preceding create_table", [Name]),
+            case create_trec(Alias, Name, Props, Backend, St) of
+                {ok, NewCf} ->
+                    ?log(debug, "NewCf = ~p", [NewCf]),
+                    St1 = update_cf(Alias, Name, NewCf, St),
+                    Backend1 = maps:get(Alias, St1#st.backends),
+                    {ok, TRec} = find_cf(Alias, Name, Backend1, St1),
+                    handle_load_table_req(Alias, Name, TRec, Backend1, St1);
                 {error, _} = Error ->
-                    {reply, Error, St}
-            end;
-        error ->
-            {reply, {abort, {bad_type, Name}}, St}
+                    {reply, {abort, Error}, St}
+            end
+    end
+    catch
+        error:E:ST ->
+            ?log(error, "CAUGHT error:~p (Tab: ~p) / ~p", [E, Name, ST]),
+            {reply, {error, E}, St}
     end;
 handle_req(_Alias, {prep_close, Name}, Backend, St) ->
     ok_reply(do_prep_close(Name, Backend, St), St);
@@ -533,6 +541,17 @@ handle_req(Alias, {migrate, Tabs0}, Backend, St) ->
             {reply, Error, St}
     end.
 
+handle_load_table_req(Alias, Name, TRec, Backend, St) ->
+    case create_table_from_trec(Alias, Name, TRec, Backend, St) of
+        {ok, TRec1, St1} ->
+            TRec2 = TRec1#{status => open},
+            St2 = update_cf(Alias, Name, TRec2, St1),
+            ?log(debug, "Table loaded ~p", [Name]),
+            put_pt(Name, TRec2),
+            {reply, ok, St2};
+        {error, _} = Error ->
+            {reply, Error, St}
+    end.
 
 %% if an index table has been created or deleted, make sure the main
 %% ref reflects it.
