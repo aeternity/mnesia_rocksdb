@@ -64,7 +64,7 @@
 
 -type req() :: {create_table, table(), properties()}
              | {delete_table, table()}
-             | {load_table, table()}
+             | {load_table, table(), properties()}
              | {related_resources, table()}
              | {get_ref, table()}
              | {add_aliases, [alias()]}
@@ -392,21 +392,16 @@ handle_cast(_Msg, St) ->
 
 -spec handle_info(any(), st()) -> gen_server_noreply().
 handle_info({mnesia_table_event, Event}, St) ->
-    ?log(debug, "Table event: ~p", [Event]),
     case Event of
         {write, {schema, Tab, Props}, _} ->
             case find_cf(Tab, St) of
                 error ->
-                    ?log(debug, "No Cf found (~p)", [Tab]),
                     {noreply, St};
                 #{} = Cf ->
-                    ?log(debug, "Located Cf: ~p", [Cf]),
                     case try_refresh_cf(Cf, Props, St) of
                         false ->
-                            ?log(debug, "Nothing changed (~p)", [Tab]),
                             {noreply, St};
                         {true, NewCf, St1} ->
-                            ?log(debug, "NewCf = ~p", [NewCf]),
                             maybe_update_pt(Tab, NewCf),
                             {noreply, St1}
                     end
@@ -457,26 +452,21 @@ intersection(A, B) ->
 handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
     case create_trec(Alias, Name, Props, Backend, St) of
         {ok, NewCf} ->
-            ?log(debug, "NewCf = ~p", [NewCf]),
             St1 = update_cf(Alias, Name, NewCf, St),
             {reply, {ok, NewCf}, St1};
         {error, _} = Error ->
             {reply, Error, St}
     end;
 handle_req(Alias, {load_table, Name, Props}, Backend, St) ->
-    ?log(debug, "load_table, ~p, ~p", [Name, Props]),
     try
     case find_cf(Alias, Name, Backend, St) of
         {ok, #{status := open}} ->
-            ?log(info, "load_table(~p) when table already loaded", [Name]),
             {reply, ok, St};
         {ok, #{status := created} = TRec} ->
             handle_load_table_req(Alias, Name, TRec, Backend, St);
         _ ->
-            ?log(debug, "load_table (~p) without preceding create_table", [Name]),
             case create_trec(Alias, Name, Props, Backend, St) of
                 {ok, NewCf} ->
-                    ?log(debug, "NewCf = ~p", [NewCf]),
                     St1 = update_cf(Alias, Name, NewCf, St),
                     Backend1 = maps:get(Alias, St1#st.backends),
                     {ok, TRec} = find_cf(Alias, Name, Backend1, St1),
@@ -711,16 +701,13 @@ create_table_from_trec(Alias, Name, #{type := column_family} = TRec,
         false ->
             create_table_as_cf(Alias, Name, TRec#{db_ref => DbRef}, St);
         {false, MP} ->
-            ?log(debug, "will create ~p as standalone (no migrate)", [Name]),
             create_table_as_standalone(Alias, Name, true, MP, TRec, St);
         {true, MP} ->
             ?log(debug, "will create ~p as standalone and migrate", [Name]),
             case create_table_as_standalone(Alias, Name, false, MP, TRec, St) of
                 {ok, OldTRec, _} ->
                     create_cf_and_migrate(Alias, Name, OldTRec, TRec, Backend, St);
-                Other ->
-                    ?log(info, "Couldn't open what seems to be a standalone table"
-                         " (~p): ~p", [Name, Other]),
+                _Other ->
                     create_table_as_cf(Alias, Name, TRec#{db_ref => DbRef}, St)
             end
    end;
@@ -739,13 +726,10 @@ create_cf_and_migrate(Alias, Name, OldTRec, TRec, #{db_ref := DbRef}, St) ->
 should_we_migrate_standalone(#{name := Name}) ->
     case table_exists_as_standalone(Name) of
         {true, MP} ->
-            ?log(debug, "table ~p exists as standalone: ~p", [Name, MP]),
             case auto_migrate_to_cf(Name) of
                 true ->
-                    ?log(debug, "auto_migrate(~p): true", [Name]),
                     {true, MP};
                 false ->
-                    ?log(debug, "auto_migrate(~p): false", [Name]),
                     {false, MP}
             end;
         {false, _} ->
@@ -953,7 +937,6 @@ props_to_map({Tab,_,_}, _) ->
 
 try_refresh_cf(#{alias := Alias, name := Name, properties := Ps} = Cf, Props, St) ->
     PMap = props_to_map(Name, Props),
-    ?log(debug, "PMap = ~p", [PMap]),
     case PMap =:= Ps of
         true -> false;
         false ->
@@ -1011,13 +994,11 @@ do_open_standalone(CreateIfMissing, Alias, Name, Exists, MP, TRec0,
     case open_db_(MP, Alias, Opts, [], CreateIfMissing) of
         {ok, #{ cf_info := CfI }} ->
 	    DbRec = maps:get({ext,Alias,"default"}, CfI),
-            ?log(debug, "successfully opened db ~p", [Name]),
             CfNames = maps:keys(CfI),
             DbRec1 = DbRec#{ cfs => CfNames,
                              mountpoint => MP },
             TRec = maps:merge(TRec0, DbRec#{type => standalone}),
             TRec1 = guess_table_vsn_and_encoding(Exists, TRec),
-            ?log(debug, "TRec1 = ~p", [TRec1]),
             {ok, TRec1, St#st{standalone = Ts#{{Alias, Name} => DbRec1}}};
         {error, _} = Err ->
             ?log(debug, "open_db error: ~p", [Err]),
@@ -1038,13 +1019,10 @@ guess_table_vsn_and_encoding(false, TRec) ->
     TRec;
 guess_table_vsn_and_encoding(true, #{properties := #{attributes := As},
                                      alias := Alias, name := Name} = R) ->
-    ?log(debug, "guess_vsn_and_encoding(R = ~p)", [R]),
     case read_admin_info(standalone_vsn_and_enc, Alias, Name) of
         {ok, {V, E}} ->
-            ?log(debug, "admin_info exists: ~p", [{V,E}]),
             R#{vsn => V, encoding => E};
         error ->
-            ?log(debug, "no admin_info; will iterate", []),
             R1 = set_default_guess(R),
             mrdb:with_rdb_iterator(
               R1, fun(I) ->
@@ -1068,21 +1046,16 @@ guess_table_vsn_and_encoding_({ok, K, V}, _I, As, R) ->
             try _ = {mnesia_rocksdb_lib:decode(EncK, sext),
                      mnesia_rocksdb_lib:decode(V, term)},
                 %% This is a vsn 1 standalone table
-                ?log(debug, "Found info tag; this is a vsn 1", []),
                 R#{vsn => 1, encoding => {sext, {object, term}}}
             catch
                 error:_ ->
-                    ?log(debug, "caught bad guess K=~p, V=~p", [K,V]),
                     R
             end;
         _ ->
-            ?log(debug, "not info obj K=~p", [K]),
             Enc = guess_obj_encoding(K, V, Arity),
-            ?log(debug, "guessed Enc = ~p", [Enc]),
             R#{encoding => Enc}
    end;
-guess_table_vsn_and_encoding_(Other, _, _, R) ->
-    ?log(debug, "Iter Other=~p", [Other]),
+guess_table_vsn_and_encoding_(_Other, _, _, R) ->
     R.
 
 guess_obj_encoding(K, V, Arity) ->

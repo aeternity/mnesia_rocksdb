@@ -885,9 +885,9 @@ whereis_proc(Alias, Tab) ->
 
 db_insert(Ref, Obj, Opts, St) ->
     try mrdb:insert(Ref, Obj, Opts) of
-        ok -> ok;
-        {error, _} = Error ->
-            write_error(insert, [Ref, Obj, Opts], Error, St)
+        ok -> ok
+        %% {error, _} = Error ->
+        %%     write_error(insert, [Ref, Obj, Opts], Error, St)
     catch
         Cat:Exception:T ->
             write_error(insert, [Ref, Obj, Opts], {Cat, Exception, T}, St)
@@ -895,9 +895,9 @@ db_insert(Ref, Obj, Opts, St) ->
 
 db_delete(Ref, K, Opts, St) ->
     try mrdb:delete(Ref, K, Opts) of
-        ok -> ok;
-        {error, _} = Error ->
-            write_error(delete, [Ref, K, Opts], Error, St)
+        ok -> ok
+        %% {error, _} = Error ->
+        %%     write_error(delete, [Ref, K, Opts], Error, St)
     catch
         Cat:Exception:T ->
             write_error(delete, [Ref, K, Opts], {Cat, Exception, T}, St)
@@ -906,7 +906,8 @@ db_delete(Ref, K, Opts, St) ->
 write_error(_Op, _Args, _Error, #st{on_error = OnErr}) when OnErr =/= fatal ->
     ok;
 write_error(Op, Args, Error, _) ->
-    mnesia:fatal("mnesia_rocksdb write_error: ~p ~p -> ~p", [Op, Args, Error]).
+    mnesia_lib:fatal("mnesia_rocksdb write_error: ~p ~p -> ~p",
+		     [Op, Args, Error]).
 
 %% ----------------------------------------------------------------------------
 %% COMMON PRIVATE
