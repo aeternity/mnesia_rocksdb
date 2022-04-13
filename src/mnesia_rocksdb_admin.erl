@@ -460,8 +460,8 @@ handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
 handle_req(Alias, {load_table, Name, Props}, Backend, St) ->
     try
     case find_cf(Alias, Name, Backend, St) of
-        {ok, #{status := open}} ->
-            {reply, ok, St};
+        {ok, #{status := open} = TRec} ->
+            {reply, {ok, TRec}, St};
         {ok, #{status := created} = TRec} ->
             handle_load_table_req(Alias, Name, TRec, Backend, St);
         _ ->
@@ -538,7 +538,7 @@ handle_load_table_req(Alias, Name, TRec, Backend, St) ->
             St2 = update_cf(Alias, Name, TRec2, St1),
             ?log(debug, "Table loaded ~p", [Name]),
             put_pt(Name, TRec2),
-            {reply, ok, St2};
+            {reply, {ok, TRec2}, St2};
         {error, _} = Error ->
             {reply, Error, St}
     end.
@@ -1133,7 +1133,20 @@ check_version(TRec) ->
 check_version_and_encoding(#{} = TRec) ->
     Vsn = check_version(TRec),
     Encoding = get_encoding(Vsn, TRec),
-    TRec#{vsn => Vsn, encoding => Encoding}.
+    set_access_type(TRec#{vsn => Vsn, encoding => Encoding}).
+
+set_access_type(R) ->
+    R#{access_type => access_type_(R)}.
+
+access_type_(#{semantics := bag}) -> legacy;
+access_type_(#{properties := #{user_properties := #{rocksdb_access_type := T}}}) ->
+    valid_access_type(T);
+access_type_(_) ->
+    valid_access_type(application:get_env(mnesia_rocksdb, default_access_type, legacy)).
+
+valid_access_type(T) when T==legacy; T==direct -> T;
+valid_access_type(T) ->
+    mrdb:abort({invalid_access_type, T}).
 
 %% This access function assumes that the requested user property is
 %% a 2-tuple. Mnesia allows user properties to be any non-empty tuple.

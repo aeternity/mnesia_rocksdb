@@ -189,6 +189,8 @@
               table/0,
               table_type/0]).
 
+
+-define(TRY(Expr, Msg, St), try_or_abort(fun() -> Expr end, Msg, St)).
 %% ----------------------------------------------------------------------------
 %% CONVENIENCE API
 %% ----------------------------------------------------------------------------
@@ -585,8 +587,8 @@ chunk_fun() ->
 %% Whereas the return type, legacy | Ref, seems odd, it's a shortcut for
 %% performance reasons.
 access_type(Tab) ->
-    case get_ref(Tab) of
-        #{semantics := bag, vsn := 1} -> legacy;
+    case mrdb:ensure_ref(Tab) of
+        #{access_type := legacy} -> legacy;
         R ->
             R#{mode => mnesia}
     end.
@@ -597,8 +599,11 @@ delete(Alias, Tab, Key) ->
         R -> db_delete(R, Key, [], R)
     end.
 
-first(_Alias, Tab) ->
-    mrdb:first(Tab).
+first(Alias, Tab) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, first);
+        R      -> mrdb:first(R)
+    end.
 
 %% Not relevant for an ordered_set
 fixtable(_Alias, _Tab, _Bool) ->
@@ -610,13 +615,19 @@ insert(Alias, Tab, Obj) ->
         R -> db_insert(R, Obj, [], [])
     end.
 
-last(_Alias, Tab) ->
-    mrdb:last(Tab).
+last(Alias, Tab) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, last);
+        R      -> mrdb:last(R)
+    end.
 
 %% Since we replace the key with [] in the record, we have to put it back
 %% into the found record.
-lookup(_Alias, Tab, Key) ->
-    mrdb:read(Tab, Key).
+lookup(Alias, Tab, Key) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {read, Key});
+        R      -> mrdb:read(R, Key)
+    end.
 
 match_delete(Alias, Tab, Pat) ->
     case access_type(Tab) of
@@ -634,11 +645,17 @@ match_delete_(#{name := {_, index, {_,bag}}, semantics := set} = R, Pat) ->
 match_delete_(R, Pat) ->
     mrdb:match_delete(R, Pat).
 
-next(_Alias, Tab, Key) ->
-    mrdb:next(Tab, Key).
+next(Alias, Tab, Key) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {next, Key});
+        R      -> mrdb:next(R, Key)
+    end.
 
-prev(_Alias, Tab, Key) ->
-    mrdb:prev(Tab, Key).
+prev(Alias, Tab, Key) ->
+    case access_type(Tab) of
+        legacy -> call(Alias, Tab, {prev, Key});
+        R      -> mrdb:prev(R, Key)
+    end.
 
 repair_continuation(Cont, _Ms) ->
     Cont.
@@ -795,13 +812,23 @@ handle_call({create_table, Tab, Props}, _From,
     end;
 handle_call({load_table, _LoadReason, Props}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
-    ok = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
-    {reply, ok, St};
+    {ok, Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
+    {reply, ok, St#st{ref = maybe_set_ref_mode(Ref)}};
 handle_call({write_info, Key, Value}, _From, #st{ref = Ref} = St) ->
     mrdb:write_info(Ref, Key, Value),
     {reply, ok, St};
 handle_call({update_counter, C, Incr}, _From, #st{ref = Ref} = St) ->
     {reply, mrdb:update_counter(Ref, C, Incr), St};
+handle_call({read, Key} = M, _From, #st{ref = Ref} = St) ->
+    {reply, ?TRY(mrdb:read(Ref, Key), M, St), St};
+handle_call(first = M, _From, #st{ref = Ref} = St) ->
+    {reply, ?TRY(mrdb:first(Ref), M, St), St};
+handle_call({prev, Key} = M, _From, #st{ref = Ref} = St) ->
+    {reply, ?TRY(mrdb:prev(Ref, Key), M, St), St};
+handle_call({next, Key} = M, _From, #st{ref = Ref} = St) ->
+    {reply, ?TRY(mrdb:next(Ref, Key), M, St), St};
+handle_call(last = M, _From, #st{ref = Ref} = St) ->
+    {reply, ?TRY(mrdb:last(Ref), M, St), St};
 handle_call({insert, Obj}, _From, St) ->
     Res = do_insert(Obj, St),
     {reply, Res, St};
@@ -837,6 +864,13 @@ terminate(_Reason, _St) ->
 %% ----------------------------------------------------------------------------
 %% GEN SERVER PRIVATE
 %% ----------------------------------------------------------------------------
+
+try_or_abort(F, Req, S) ->
+    try F()
+    catch error:E:ST ->
+        ?log(error, "CAUGHT error:~p / ~p; Req = ~p, St = ~p", [E, ST, Req, S]),
+        {abort, {caught, {E, ST}}}
+    end.
 
 opt_call(Alias, Tab, Req) ->
     ProcName = proc_name(Alias, Tab),

@@ -7,6 +7,8 @@
         , rdb_fold/5  %% (Ref, Fun, Acc, Prefix, Limit)
         ]).
 
+-export([continuation_info/2]).
+
 -import(mnesia_rocksdb_lib, [ keypos/1
                             , decode_key/2
                             , decode_val/3
@@ -46,8 +48,19 @@ mk_sel(#{name := Tab} = Ref, MS, Limit) ->
 select(Cont) ->
     case Cont of
         '$end_of_table' -> '$end_of_table';
-        _               -> Cont()
+        _ when is_function(Cont, 1) ->
+            Cont(cont)
     end.
+
+continuation_info(Item, C) when is_atom(Item), is_function(C, 1) ->
+    continuation_info_(Item, C(sel));
+continuation_info(_, _) -> undefined.
+
+continuation_info_(ref,       #sel{ref       = Ref}) -> Ref;
+continuation_info_(ms,        #sel{ms        = MS }) -> MS;
+continuation_info_(limit,     #sel{limit     = L  }) -> L;
+continuation_info_(direction, #sel{direction = Dir}) -> Dir;
+continuation_info_(_, _) -> undefined.
 
 fold(Ref, Fun, Acc, MS, Limit) ->
    {AccKeys, F} =
@@ -227,7 +240,8 @@ decr(infinity) ->
 
 traverse_continue(K, 0, Pfx, MS, _I, #sel{limit = Limit, ref = Ref} = Sel, AccKeys, Acc) ->
     {lists:reverse(Acc),
-     fun() ->
+     fun(sel) -> Sel;
+        (cont) ->
              mrdb:with_rdb_iterator(
                Ref,
                fun(NewI) ->
