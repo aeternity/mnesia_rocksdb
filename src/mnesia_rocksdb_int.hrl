@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 -include_lib("hut/include/hut.hrl").
 
 %% enable debugging messages through mnesia:set_debug_level(debug)

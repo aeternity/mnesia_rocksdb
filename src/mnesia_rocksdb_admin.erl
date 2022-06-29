@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 -module(mnesia_rocksdb_admin).
 
 -behaviour(gen_server).
@@ -993,7 +994,7 @@ do_open_standalone(CreateIfMissing, Alias, Name, Exists, MP, TRec0,
     Opts = rocksdb_opts_from_trec(TRec0),
     case open_db_(MP, Alias, Opts, [], CreateIfMissing) of
         {ok, #{ cf_info := CfI }} ->
-	    DbRec = maps:get({ext,Alias,"default"}, CfI),
+            DbRec = maps:get({ext,Alias,"default"}, CfI),
             CfNames = maps:keys(CfI),
             DbRec1 = DbRec#{ cfs => CfNames,
                              mountpoint => MP },

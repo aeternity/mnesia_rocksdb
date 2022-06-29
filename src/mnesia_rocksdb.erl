@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 %%----------------------------------------------------------------
 %% Copyright (c) 2013-2016 Klarna AB
 %%
@@ -257,8 +258,8 @@ show_table(Tab) ->
 show_table(Tab, Limit) ->
     Ref = get_ref(Tab),
     mrdb:with_rdb_iterator(Ref, fun(I) ->
-					i_show_table(I, first, Limit, Ref)
-				end).
+                                        i_show_table(I, first, Limit, Ref)
+                                end).
 
 i_show_table(_, _, 0, _) ->
     {error, skipped_some};
@@ -941,7 +942,7 @@ write_error(_Op, _Args, _Error, #st{on_error = OnErr}) when OnErr =/= fatal ->
     ok;
 write_error(Op, Args, Error, _) ->
     mnesia_lib:fatal("mnesia_rocksdb write_error: ~p ~p -> ~p",
-		     [Op, Args, Error]).
+                     [Op, Args, Error]).
 
 %% ----------------------------------------------------------------------------
 %% COMMON PRIVATE

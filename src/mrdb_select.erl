@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 -module(mrdb_select).
 
 -export([ select/3    %% (Ref, MatchSpec, Limit)

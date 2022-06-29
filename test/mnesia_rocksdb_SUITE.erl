@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 -module(mnesia_rocksdb_SUITE).
 
 -export([
@@ -16,7 +17,8 @@
         , encoding_binary_binary/1
         , encoding_defaults/1
         ]).
--export([ mrdb_transactions/1
+-export([ mrdb_batch/1
+        , mrdb_transactions/1
         , mrdb_repeated_transactions/1
         , mrdb_abort/1
         , mrdb_two_procs/1
@@ -43,7 +45,8 @@ groups() ->
     , {checks, [sequence], [ encoding_sext_attrs
                            , encoding_binary_binary
                            , encoding_defaults ]}
-    , {mrdb, [sequence], [ mrdb_transactions
+    , {mrdb, [sequence], [ mrdb_batch
+                         , mrdb_transactions
                          , mrdb_repeated_transactions
                          , mrdb_abort
                          , mrdb_two_procs
@@ -139,6 +142,43 @@ expect_error(F, Line, Type, Expected) ->
             ok
     end.
 
+mrdb_batch(Config) ->
+    Created = create_tabs([{b, []}], Config),
+    D0 = get_dict(),
+    mrdb:activity(
+      batch, rdb,
+      fun() ->
+              [mrdb:insert(b, {b, K, K})
+               || K <- lists:seq(1, 10)]
+      end),
+    dictionary_unchanged(D0),
+    [[{b,K,K}] = mrdb:read(b, K) || K <- lists:seq(1, 10)],
+    expect_error(
+      fun() -> mrdb:activity(
+                 batch, rdb,
+                 fun() ->
+                         mrdb:insert(b, {b, 11, 11}),
+                         error(willful_abort)
+                 end)
+      end, ?LINE, error, '_'),
+    dictionary_unchanged(D0),
+    [] = mrdb:read(b, 11),
+    TRef = mrdb:get_ref(b),
+    mrdb:activity(
+      batch, rdb,
+      fun() ->
+              mrdb:insert(TRef, {b, 12, 12})
+      end),
+    dictionary_unchanged(D0),
+    [{b, 12, 12}] = mrdb:read(b, 12),
+    mrdb:as_batch(b, fun(R) ->
+                             mrdb:insert(R, {b, 13, 13})
+                     end),
+    dictionary_unchanged(D0),
+    [{b, 13, 13}] = mrdb:read(b, 13),
+    delete_tabs(Created),
+    ok.
+
 mrdb_transactions(Config) ->
     tr_ct:with_trace(fun mrdb_transactions_/1, Config,
                      tr_patterns(
@@ -149,13 +189,17 @@ mrdb_transactions_(Config) ->
     Created = create_tabs([{tx, []}], Config),
     mrdb:insert(tx, {tx, a, 1}),
     [_] = mrdb:read(tx, a),
+    D0 = get_dict(),
     mrdb:activity(
       tx, rdb,
       fun() ->
               [{tx,a,N}] = mrdb:read(tx, a),
               N1 = N+1,
-              ok = mrdb:insert(tx, {tx,a,N1})
+              ok = mrdb:insert(tx, {tx,a,N1}),
+              [{tx,a,N1}] = mrdb:read(tx, a),
+              ok
       end),
+    dictionary_unchanged(D0),
     [{tx,a,2}] = mrdb:read(tx,a),
     delete_tabs(Created),
     ok.
@@ -169,7 +213,9 @@ mrdb_repeated_transactions(Config) ->
                   N1 = N+1,
                   ok = mrdb:insert(rtx, {rtx, a, N1})
           end,
+    D0 = get_dict(),
     [ok = mrdb:activity(tx, rdb, Fun) || _ <- lists:seq(1,100)],
+    dictionary_unchanged(D0),
     [{rtx,a,100}] = mrdb:read(rtx, a),
     delete_tabs(Created),
     ok.
@@ -178,6 +224,7 @@ mrdb_abort(Config) ->
     Created = create_tabs([{tx_abort, []}], Config),
     mrdb:insert(tx_abort, {tx_abort, a, 1}),
     Pre = mrdb:read(tx_abort, a),
+    D0 = get_dict(),
     TRes = try mrdb:activity(
                  tx, rdb,
                  fun() ->
@@ -190,6 +237,7 @@ mrdb_abort(Config) ->
                error:abort_here ->
                    ok
            end,
+    dictionary_unchanged(D0),
     ok = TRes,
     Pre = mrdb:read(tx_abort, a),
     delete_tabs(Created),
@@ -202,7 +250,7 @@ mrdb_two_procs(Config) ->
                        tr_patterns(
                          mrdb, [ {mrdb, insert, 2, x}
                                , {mrdb, read, 2, x}
-                               , {mrdb, activity, x} ], tr_opts()))).
+                               , {mrdb, activity, x}], tr_opts()))).
 
 mrdb_two_procs_(Config) ->
     R = ?FUNCTION_NAME,
@@ -217,7 +265,9 @@ mrdb_two_procs_(Config) ->
          end,
     {POther, MRef} = spawn_opt(
                        fun() ->
-                               ok = mrdb:activity(tx, rdb, F0)
+                               D0 = get_dict(),
+                               ok = mrdb:activity(tx, rdb, F0),
+                               dictionary_unchanged(D0)
                        end, [monitor]),
     F1 = fun() ->
                  Pre = mrdb:read(R, a),
@@ -227,6 +277,7 @@ mrdb_two_procs_(Config) ->
                  ok = mrdb:insert(R, {R, a, 18})
          end,
     go_ahead_other(1, POther),
+    Do0 = get_dict(),
     try mrdb:activity({tx, #{no_snapshot => true,
                              retries => 0}}, rdb, F1) of
         ok -> error(unexpected)
@@ -234,6 +285,7 @@ mrdb_two_procs_(Config) ->
         error:{error, "Resource busy" ++ _} ->
             ok
     end,
+    dictionary_unchanged(Do0),
     [{R, a, 17}] = mrdb:read(R, a),
     delete_tabs(Created),
     ok.
@@ -271,7 +323,9 @@ mrdb_two_procs_tx_restart_(Config) ->
                  ok = mrdb:insert(R, {R, a, 18})
          end,
     go_ahead_other(1, POther),
+    Do0 = get_dict(),
     mrdb:activity({tx, #{no_snapshot => true}}, rdb, F1),
+    dictionary_unchanged(Do0),
     [{R, a, 18}] = mrdb:read(R, a),
     delete_tabs(Created),
     ok.
@@ -309,7 +363,9 @@ mrdb_two_procs_snap(Config) ->
          end,
     {POther, MRef} =
         spawn_opt(fun() ->
-                          ok = mrdb:activity(tx, rdb, F0)
+                          D0 = get_dict(),
+                          ok = mrdb:activity(tx, rdb, F0),
+                          dictionary_unchanged(D0)
                   end, [monitor]),
     F1 = fun() ->
                  Att = get_attempt(),
@@ -324,7 +380,9 @@ mrdb_two_procs_snap(Config) ->
                  mrdb:insert(R, {R, b, 18}),
                  1477
          end,
+    Do0 = get_dict(),
     1477 = mrdb:activity(tx, rdb, F1),
+    dictionary_unchanged(Do0),
     [{R, a, 17}] = mrdb:read(R, a),
     [{R, b, 18}] = mrdb:read(R, b),
     delete_tabs(Created),
@@ -351,11 +409,13 @@ mrdb_three_procs_(Config) ->
          end,
     {P1, MRef1} =
         spawn_opt(fun() ->
+                          D0 = get_dict(),
                           do_when_p_allows(
                             1, Parent, ?LINE,
                             fun() ->
                                     ok = mrdb:activity({tx,#{retries => 0}}, rdb, F1)
-                            end)
+                            end),
+                          dictionary_unchanged(D0)
                   end, [monitor]),
     F2 = fun() ->
                  [A0] = mrdb:read(R, a),
@@ -371,6 +431,7 @@ mrdb_three_procs_(Config) ->
          end,
     {P2, MRef2} =
         spawn_opt(fun() ->
+                          D0 = get_dict(),
                           try mrdb:activity(
                                 {tx, #{retries => 0,
                                        no_snapshot => true}}, rdb, F2) of
@@ -378,8 +439,10 @@ mrdb_three_procs_(Config) ->
                           catch
                               error:{error, "Resource busy" ++ _} ->
                                   ok
-                          end
+                          end,
+                          dictionary_unchanged(D0)
                   end, [monitor]),
+    Do0 = get_dict(),
     ok = mrdb:activity(tx, rdb,
                        fun() ->
                                Att = get_attempt(),
@@ -398,6 +461,7 @@ mrdb_three_procs_(Config) ->
                                await_other_down(P2, MRef2, ?LINE),
                                ok = mrdb:insert(R, {R, p0, 1})
                        end),
+    dictionary_unchanged(Do0),
     [{R, p1, 1}] = mrdb:read(R, p1),
     [] = mrdb:read(R, p2),
     [A1] = mrdb:read(R, a),
@@ -511,7 +575,7 @@ await_other_down_(P, MRef, Line) ->
     end.
 
 get_attempt() ->
-    #{attempt := Attempt} = mrdb:current_context(),
+    #{activity := #{attempt := Attempt}} = mrdb:current_context(),
     Attempt.
 
 create_tabs(Tabs, Config) ->
@@ -529,3 +593,14 @@ delete_tabs(Tabs) ->
     [{atomic,ok} = mnesia:delete_table(T) || T <- Tabs],
     ok.
 
+get_dict() ->
+    {dictionary, D} = process_info(self(), dictionary),
+    [X || {K,_} = X <- D,
+          K =/= log_timestamp].
+
+dictionary_unchanged(Old) ->
+    New = get_dict(),
+    #{ deleted := []
+     , added   := [] } = #{ deleted => Old -- New
+                          , added   => New -- Old },
+    ok.

@@ -1,3 +1,4 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 %%----------------------------------------------------------------
 %% Copyright (c) 2013-2016 Klarna AB
 %%
