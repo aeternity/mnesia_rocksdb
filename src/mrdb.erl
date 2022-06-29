@@ -971,7 +971,7 @@ get_batch_(DbRef, BatchRef) ->
         #{DbRef := Batch} ->
             Batch;
         Map ->
-            {ok, Batch} = rdb:batch(),
+            {ok, Batch} = rdb_batch(),
             put(Key, Map#{DbRef => Batch}),
             Batch
     end.
