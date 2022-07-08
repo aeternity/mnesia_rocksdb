@@ -53,6 +53,7 @@
         , delete/2       , delete/3
         , delete_object/2, delete_object/3
         , match_delete/2
+	, clear_table/1
         , batch_write/2  , batch_write/3
         , update_counter/3, update_counter/4
         , as_batch/2     , as_batch/3
@@ -285,7 +286,7 @@ do_activity(F, Alias, Ctxt, WithLock) ->
                     do_activity(F, Alias, Ctxt, true)
             end
     catch
-        Cat:Err when Cat==error; Cat==exit ->
+        Cat:Err ->
             abort_and_pop(Cat, Err)
     end.
 
@@ -315,20 +316,18 @@ incr_attempt(#{ activity := #{type := tx, attempt := A} = Act, db_ref := DbRef }
 ctxt() -> {?MODULE, ctxt}.
 
 push_ctxt(C) ->
-    K = ctxt(),
-    C1 = case get(K) of
+    C1 = case get_ctxt() of
              undefined -> [C];
              C0        -> [C|C0]
          end,
-    put(K, C1),
+    put_ctxt(C1),
     ok.
 
 pop_ctxt() ->
-    K = ctxt(),
-    case get(K) of
+    case get_ctxt() of
         undefined -> error(no_ctxt);
-        [C]       -> erase(K) , maybe_release_snapshot(C);
-        [H|T]     -> put(K, T), maybe_release_snapshot(H)
+        [C]       -> erase_ctxt() , maybe_release_snapshot(C);
+        [H|T]     -> put_ctxt(T), maybe_release_snapshot(H)
     end.
 
 maybe_release_snapshot(#{snapshot := SH} = C) ->
@@ -342,7 +341,7 @@ maybe_release_snapshot(C) ->
     C.
 
 current_context() ->
-    case get(ctxt()) of
+    case pdict_get(ctxt()) of
         [C|_] ->
             C;
         undefined ->
@@ -432,6 +431,7 @@ commit_and_pop(Res) ->
             end
     end.
 
+-spec abort_and_pop(atom(), any()) -> no_return().
 abort_and_pop(Cat, Err) ->
     %% We can pop the context right away, since there is no
     %% complex failure handling (like retry-on-busy) for rollback.
@@ -440,11 +440,47 @@ abort_and_pop(Cat, Err) ->
         tx    -> ok = rdb_transaction_rollback(H);
         batch -> ok = release_batches(H)
     end,
-    case Cat of
-        error -> error(Err);
-        exit  -> exit(Err)
-        %% throw -> throw(Err)
+    return_abort(Type, Cat, Err).
+
+-spec return_abort(batch | tx, atom(), any()) -> no_return().
+return_abort(batch, Cat, Err) ->
+    re_throw(Cat, Err);
+return_abort(tx, Cat, Err) ->
+    case mnesia_compatible_aborts() of
+	true ->
+	    %% Mnesia always captures stack traces, but this could actually become a
+	    %% performance issue in some cases (generally, it's better not to lazily
+	    %% produce stack traces.) Since we want to pushe the option checking for
+	    %% mnesia-abort-style compatibility to AFTER detecting an abort, we don't
+	    %% order a stack trace initially, and instead insert an empty list.
+	    %% (The exact stack trace wouldn't be the same anyway.)
+	    Err1 =
+		case Cat of
+		    error -> {fix_error(Err), []};
+		    exit  -> fix_error(Err);
+		    throw -> {throw, Err}
+		end,
+	    exit({aborted, Err1});
+	false ->
+	    re_throw(Cat, Err)
     end.
+
+-spec re_throw(atom(), any()) -> no_return().
+re_throw(Cat, Err) ->
+    case Cat of
+	error -> error(Err);
+	exit  -> exit(Err);
+	throw -> throw(Err)
+    end.
+
+
+mnesia_compatible_aborts() ->
+    mnesia_rocksdb_admin:get_cached_env(mnesia_compatible_aborts, false).
+
+fix_error({aborted, Err}) ->
+    Err;
+fix_error(Err) ->
+    Err.
 
 rdb_transaction(DbRef, Opts) ->
     rocksdb:transaction(DbRef, Opts).
@@ -476,7 +512,12 @@ rdb_release_batch(H) ->
 
 %% @doc Aborts an ongoing {@link activity/2}
 abort(Reason) ->
-    erlang:error({mrdb_abort, Reason}).
+    case mnesia_compatible_aborts() of
+	true ->
+	    mnesia:abort(Reason);
+	false ->
+	    erlang:error({mrdb_abort, Reason})
+    end.
 
 -spec new_tx(table() | db_ref()) -> db_ref().
 new_tx(Tab) ->
@@ -514,9 +555,18 @@ get_ref(Tab) ->
 -spec ensure_ref(ref_or_tab()) -> db_ref().
 ensure_ref(#{activity := _} = R) -> R;
 ensure_ref(Ref) when is_map(Ref) ->
-    maybe_tx_ctxt(get(ctxt()), Ref);
+    maybe_tx_ctxt(get_ctxt(), Ref);
 ensure_ref(Other) ->
-    maybe_tx_ctxt(get(ctxt()), get_ref(Other)).
+    maybe_tx_ctxt(get_ctxt(), get_ref(Other)).
+
+get_ctxt() ->
+    pdict_get(ctxt()).
+
+put_ctxt(C) ->
+    pdict_put(ctxt(), C).
+
+erase_ctxt() ->
+    pdict_erase(ctxt()).
 
 ensure_ref(Ref, R) when is_map(Ref) ->
     inherit_ctxt(Ref, R);
@@ -933,6 +983,9 @@ as_batch(Tab, F, Opts) when is_function(F, 1), is_list(Opts) ->
 as_batch_(#{activity := #{type := batch}} = R, F, _) ->
     %% If already inside a batch, add to that batch (batches don't seem to nest)
     F(R);
+as_batch_(#{activity := #{type := tx}} = R, F, _) ->
+    %% If already inside a tx, we need to respect the tx context
+    F(R);
 as_batch_(#{db_ref := DbRef} = R, F, Opts) ->
     BatchRef = get_batch_(DbRef),
     try F(R#{activity => #{type => batch, handle => BatchRef}}) of
@@ -960,34 +1013,41 @@ get_batch(_) ->
 get_batch_(DbRef) ->
     Ref = make_ref(),
     {ok, Batch} = rdb_batch(),
-    put({mrdb_batch, Ref}, #{DbRef => Batch}),
+    pdict_put({mrdb_batch, Ref}, #{DbRef => Batch}),
     Ref.
 
 get_batch_(DbRef, BatchRef) ->
     Key = batch_ref_key(BatchRef),
-    case get(Key) of
+    case pdict_get(Key) of
         undefined ->
             error(stale_batch_ref);
         #{DbRef := Batch} ->
             Batch;
         Map ->
             {ok, Batch} = rdb_batch(),
-            put(Key, Map#{DbRef => Batch}),
+            pdict_put(Key, Map#{DbRef => Batch}),
             Batch
     end.
+
+
+pdict_get(K) -> get(K).
+
+pdict_put(K, V) -> put(K, V).
+
+pdict_erase(K) -> erase(K).
 
 batch_ref_key(BatchRef) ->
     {mrdb_batch, BatchRef}.
 
 write_batches(BatchRef, Opts) ->
     Key = batch_ref_key(BatchRef),
-    case get(Key) of
+    case pdict_get(Key) of
         undefined ->
             error(stale_batch_ref);
         Map ->
             %% Some added complication since we deal with potentially
             %% multiple DbRefs, and will want to return errors.
-            erase(Key),
+            pdict_erase(Key),
             ret_batch_write_acc(
               maps:fold(
                 fun(DbRef, Batch, Acc) ->
@@ -1013,11 +1073,11 @@ acc_batch_write_error(E, DbRef, Es) when is_list(Es) ->
 
 release_batches(BatchRef) ->
     Key = batch_ref_key(BatchRef),
-    case get(Key) of
+    case pdict_get(Key) of
         undefined ->
             ok;
         Map ->
-            erase(Key),
+            pdict_erase(Key),
             maps_foreach(
               fun(_, Batch) ->
                       rdb_release_batch(Batch)
@@ -1149,19 +1209,46 @@ select(Tab, Pat, Limit) when Limit == infinity; is_integer(Limit), Limit > 0 ->
 select(Cont) ->
     mrdb_select:select(Cont).
 
+clear_table(Tab) ->
+    match_delete(Tab, '_').
+
 match_delete(Tab, Pat) ->
     Ref = ensure_ref(Tab),
-    MatchSpec = [{Pat, [], [true]}],
-    as_batch(Ref, fun(R) ->
-                          %% call select() with AccKeys=true, returning [{Key, _}]
-                          match_delete_(mrdb_select:select(Ref, MatchSpec, true, 30), R)
-                  end).
+    case Pat of
+	'_' ->
+	    delete_whole_table(Ref);
+	_ ->
+	    MatchSpec = [{Pat, [], [true]}],
+	    as_batch(Ref, fun(R) ->
+				  %% call select() with AccKeys=true, returning [{Key, _}]
+				  match_delete_(mrdb_select:select(Ref, MatchSpec, true, 30), R)
+			  end)
+    end.
 
 match_delete_({L, Cont}, Ref) ->
     [rdb_delete(Ref, K, []) || {K,_} <- L],
     match_delete_(select(Cont), Ref);
 match_delete_('$end_of_table', _) ->
     ok.
+
+delete_whole_table(Ref) ->
+    mnesia_rocksdb_admin:clear_table(Ref).
+%%     with_rdb_iterator(
+%%       Ref,
+%%       fun(I) ->
+%% 	      case i_move(I, first) of
+%% 		  {ok, First, _} ->
+%% 		      {ok, Last, _} = i_move(I, last),
+%% 		      %% Pad Last, since delete_range excludes EndKey
+%% 		      delete_range(Ref, First, <<Last/binary, 0>>);
+%% 		  _ ->
+%% 		      ok
+%% 	      end
+%%       end).
+
+%% N.B. rocksdb:delete_range/5 isn't implemented yet
+%% delete_range(#{db_ref := DbRef, cf_handle := CfH} = R, Start, End) ->
+%%     rocksdb:delete_range(DbRef, CfH, Start, End, write_opts(R, [])).
 
 fold(Tab, Fun, Acc) ->
     fold(Tab, Fun, Acc, [{'_', [], ['$_']}]).

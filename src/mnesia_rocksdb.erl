@@ -145,14 +145,6 @@
 -import(mrdb, [ with_iterator/2
               ]).
 
--import(mnesia_rocksdb_admin, [ get_ref/1 ]).
-
-%% -import(mnesia_rocksdb_lib, [ encode_key/2
-%%                             , encode_val/3
-%%                             , decode_key/2
-%%                             , decode_val/3
-%%                             ]).
-
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
 
@@ -165,10 +157,10 @@
 %% RECORDS
 %% ----------------------------------------------------------------------------
 
--record(st, { ref
-            , alias
+-record(st, { alias
             , tab
             , type
+            , status
             , on_error
             }).
 
@@ -218,6 +210,10 @@ register(Alias) ->
         {aborted, Reason} ->
             {error, Reason}
     end.
+
+get_ref(Tab) ->
+    R = mnesia_rocksdb_admin:get_ref(Tab),
+    R#{mode => mnesia}.
 
 default_alias() ->
     rocksdb_copies.
@@ -778,33 +774,24 @@ start_proc(Alias, Tab, Type, ProcName, Props, RdbOpts) ->
     gen_server:start_link({local, ProcName}, ?MODULE,
                           {Alias, Tab, Type, Props, RdbOpts}, []).
 
-init({Alias, Tab, Type, _Props, RdbOpts}) ->
+init({Alias, Tab, Type, _Props, _RdbOpts}) ->
     process_flag(trap_exit, true),
     %% In case of a process restart, we try to rebuild the state
     %% from the cf info held by the admin process.
-    Ref = case mnesia_rocksdb_admin:request_ref(Alias, Tab) of
-              {ok, Ref1} -> Ref1;
-              {error, _} -> undefined
-          end,
-    {ok, update_state(Ref, Alias, Tab, Type, RdbOpts, #st{})}.
-
-update_state(Ref, Alias, Tab, Type, _RdbOpts, St) ->
-    St#st{ tab = Tab
-         , alias = Alias
-         , type = Type
-         , ref = maybe_set_ref_mode(Ref)
-         }.
-
-maybe_set_ref_mode(Ref) when is_map(Ref) ->
-    Ref#{mode => mnesia};
-maybe_set_ref_mode(Ref) ->
-    Ref.
+    S0 = #st{ tab = Tab
+            , alias = Alias
+            , type = Type },
+    S = case mnesia_rocksdb_admin:request_ref(Alias, Tab) of
+            {ok, _Ref} -> S0#st{status = active};
+            {error, _} -> S0
+        end,
+    {ok, S}.
 
 handle_call({create_table, Tab, Props}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
     try mnesia_rocksdb_admin:create_table(Alias, Tab, Props) of
-        {ok, Ref} ->
-            {reply, ok, St#st{ref = maybe_set_ref_mode(Ref)}};
+        {ok, _Ref} ->
+            {reply, ok, St#st{status = active}};
         Other ->
             {reply, Other, St}
     catch
@@ -813,38 +800,38 @@ handle_call({create_table, Tab, Props}, _From,
     end;
 handle_call({load_table, _LoadReason, Props}, _From,
             #st{alias = Alias, tab = Tab} = St) ->
-    {ok, Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
-    {reply, ok, St#st{ref = maybe_set_ref_mode(Ref)}};
-handle_call({write_info, Key, Value}, _From, #st{ref = Ref} = St) ->
-    mrdb:write_info(Ref, Key, Value),
+    {ok, _Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
+    {reply, ok, St#st{status = active}};
+handle_call({write_info, Key, Value}, _From, #st{tab = Tab} = St) ->
+    mrdb:write_info(get_ref(Tab), Key, Value),
     {reply, ok, St};
-handle_call({update_counter, C, Incr}, _From, #st{ref = Ref} = St) ->
-    {reply, mrdb:update_counter(Ref, C, Incr), St};
-handle_call({read, Key} = M, _From, #st{ref = Ref} = St) ->
-    {reply, ?TRY(mrdb:read(Ref, Key), M, St), St};
-handle_call(first = M, _From, #st{ref = Ref} = St) ->
-    {reply, ?TRY(mrdb:first(Ref), M, St), St};
-handle_call({prev, Key} = M, _From, #st{ref = Ref} = St) ->
-    {reply, ?TRY(mrdb:prev(Ref, Key), M, St), St};
-handle_call({next, Key} = M, _From, #st{ref = Ref} = St) ->
-    {reply, ?TRY(mrdb:next(Ref, Key), M, St), St};
-handle_call(last = M, _From, #st{ref = Ref} = St) ->
-    {reply, ?TRY(mrdb:last(Ref), M, St), St};
+handle_call({update_counter, C, Incr}, _From, #st{tab = Tab} = St) ->
+    {reply, mrdb:update_counter(get_ref(Tab), C, Incr), St};
+handle_call({read, Key} = M, _From, #st{tab = Tab} = St) ->
+    {reply, ?TRY(mrdb:read(get_ref(Tab), Key), M, St), St};
+handle_call(first = M, _From, #st{tab = Tab} = St) ->
+    {reply, ?TRY(mrdb:first(get_ref(Tab)), M, St), St};
+handle_call({prev, Key} = M, _From, #st{tab = Tab} = St) ->
+    {reply, ?TRY(mrdb:prev(get_ref(Tab), Key), M, St), St};
+handle_call({next, Key} = M, _From, #st{tab = Tab} = St) ->
+    {reply, ?TRY(mrdb:next(get_ref(Tab), Key), M, St), St};
+handle_call(last = M, _From, #st{tab = Tab} = St) ->
+    {reply, ?TRY(mrdb:last(get_ref(Tab)), M, St), St};
 handle_call({insert, Obj}, _From, St) ->
     Res = do_insert(Obj, St),
     {reply, Res, St};
 handle_call({delete, Key}, _From, St) ->
     Res = do_delete(Key, St),
     {reply, Res, St};
-handle_call({match_delete, Pat}, _From, #st{ref = Ref} = St) ->
-    Res = mrdb:match_delete(Ref, Pat),
+handle_call({match_delete, Pat}, _From, #st{tab = Tab} = St) ->
+    Res = mrdb:match_delete(get_ref(Tab), Pat),
     {reply, Res, St};
 handle_call(close_table, _From, #st{alias = Alias, tab = Tab} = St) ->
     _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
-    {reply, ok, St#st{ref = undefined}};
+    {reply, ok, St#st{status = undefined}};
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
     ok = mnesia_rocksdb_admin:delete_table(Alias, Tab),
-    {stop, normal, ok, St#st{ref = undefined}}.
+    {stop, normal, ok, St#st{status = undefined}}.
 
 handle_cast(_, St) ->
     {noreply, St}.
@@ -901,12 +888,12 @@ do_call(P, Req) ->
     end.
 
 %% server-side end of insert/3.
-do_insert(Obj, #st{ref = Ref} = St) ->
-    db_insert(Ref, Obj, [], St).
+do_insert(Obj, #st{tab = Tab} = St) ->
+    db_insert(get_ref(Tab), Obj, [], St).
 
 %% server-side part
-do_delete(Key, #st{ref = Ref} = St) ->
-    db_delete(Ref, Key, [], St).
+do_delete(Key, #st{tab = Tab} = St) ->
+    db_delete(get_ref(Tab), Key, [], St).
 
 proc_name(_Alias, Tab) ->
     list_to_atom("mnesia_ext_proc_" ++ mnesia_rocksdb_lib:tabname(Tab)).

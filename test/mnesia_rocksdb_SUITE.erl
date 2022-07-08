@@ -19,6 +19,7 @@
         ]).
 -export([ mrdb_batch/1
         , mrdb_transactions/1
+	, mrdb_abort_reasons/1
         , mrdb_repeated_transactions/1
         , mrdb_abort/1
         , mrdb_two_procs/1
@@ -47,6 +48,7 @@ groups() ->
                            , encoding_defaults ]}
     , {mrdb, [sequence], [ mrdb_batch
                          , mrdb_transactions
+			 , mrdb_abort_reasons
                          , mrdb_repeated_transactions
                          , mrdb_abort
                          , mrdb_two_procs
@@ -203,6 +205,45 @@ mrdb_transactions_(Config) ->
     [{tx,a,2}] = mrdb:read(tx,a),
     delete_tabs(Created),
     ok.
+
+mrdb_abort_reasons(_Config) ->
+    Prev = mnesia_rocksdb_admin:set_and_cache_env(mnesia_compatible_aborts, true),
+    X = some_value,
+    compare_txs('throw', fun() -> throw(X) end),
+    compare_txs('exit' , fun() -> exit(X) end),
+    compare_txs('error', fun() -> error(X) end),
+    compare_txs('abort', fun() -> mnesia:abort(X) end),
+    compare_txs('abort' , fun() -> mrdb:abort(X) end),
+    mnesia_rocksdb_admin:set_and_cache_env(mnesia_compatible_aborts, Prev),
+    ok.
+
+compare_txs(Type, F) ->
+    {caught, exit, {aborted, EMn}} = mnesia_tx(F),
+    {caught, exit, {aborted, EMr}} = mrdb_tx(F),
+    ct:log("Mnesia = ~p/~p", [Type, EMn]),
+    ct:log("Mrdb   = ~p/~p", [Type, EMr]),
+    case {Type, EMn, EMr} of
+	{error, {some_value, [_|_]}, {some_value, []}} -> ok;
+	{throw, {throw, some_value}, {throw, some_value}} -> ok;
+	{exit, some_value, some_value} -> ok;
+	{abort, some_value, some_value} -> ok
+    end.
+
+mnesia_tx(F) ->
+    try
+	mnesia:activity(transaction, F)
+    catch
+	C:E ->
+	    {caught, C, E}
+    end.
+
+mrdb_tx(F) ->
+    try
+	mrdb:activity(transaction, rdb, F)
+    catch
+	C:E ->
+	    {caught, C, E}
+    end.
 
 mrdb_repeated_transactions(Config) ->
     Created = create_tabs([{rtx, []}], Config),

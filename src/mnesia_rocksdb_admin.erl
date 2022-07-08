@@ -15,6 +15,7 @@
         , get_ref/2                %% (Name, Default -> Ref | Default
         , request_ref/2            %% (Alias, Name) -> Ref
         , close_table/2
+	, clear_table/1
         ]).
 
 -export([ migrate_standalone/2 ]).
@@ -34,7 +35,9 @@
         , write_table_property/3 %% (Alias, Tab, Property)
         ]).
 
--export([meta/0]).
+-export([ meta/0
+	, get_cached_env/2
+	, set_and_cache_env/2 ]).
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
@@ -73,7 +76,8 @@
              | {remove_aliases, [alias()]}
              | {migrate, [{tabname(), map()}]}
              | {prep_close, table()}
-             | {close_table, table()}.
+             | {close_table, table()}
+	     | {clear_table, table() | cf() }.
 
 -type reason() :: any().
 -type reply()  :: any().
@@ -126,6 +130,30 @@ erase_pt_list(Names) ->
     Meta = meta(),
     persistent_term:put(?PT_KEY, maps:without(Names, Meta)).
 
+check_application_defaults(Meta) ->
+    Value = application:get_env(mnesia_rocksdb, mnesia_compatible_aborts, false),
+    Meta#{ {mnesia_compatible_aborts} => Value }.
+
+get_cached_env(Key, Default) ->
+    maps:get({Key}, meta(), Default).
+
+set_and_cache_env_(Key, Value) when is_atom(Key) ->
+    Meta = meta(),
+    Prev = maps:get({Key}, Meta, undefined),
+    application:set_env(mnesia_rocksdb, Key, Value),
+    persistent_term:put(?PT_KEY, Meta#{{Key} => Value}),
+    Prev.
+
+maybe_initial_meta() ->
+    case persistent_term:get(?PT_KEY, undefined) of
+	undefined ->
+	    M = check_application_defaults(#{}),
+	    persistent_term:put(?PT_KEY, M),
+	    M;
+	M when is_map(M) ->
+	    M
+    end.
+
 meta() ->
     persistent_term:get(?PT_KEY, #{}).
 
@@ -136,6 +164,9 @@ prep_close(_, _) ->
 
 get_pt(Name, Default) ->
     maps:get(Name, meta(), Default).
+
+set_and_cache_env(Key, Value) ->
+    gen_server:call(?MODULE, {set_and_cache_env, Key, Value}).
 
 create_table(Alias, Name, Props) ->
     call(Alias, {create_table, Name, Props}).
@@ -170,6 +201,16 @@ request_ref(Alias, Name) ->
 
 close_table(Alias, Name) ->
     call(Alias, {close_table, Name}).
+
+clear_table(#{alias := Alias, name := Name}) ->
+    case Name of
+	{admin, _} -> mnesia:abort({bad_type, Name});
+	{_}        -> mnesia:abort({no_exists, Name});
+	_ ->
+	    call(Alias, {clear_table, Name})
+    end;
+clear_table(Name) ->
+    clear_table(get_ref(Name)).
 
 add_aliases(Aliases) ->
     call([], {add_aliases, Aliases}).
@@ -276,6 +317,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
+    _ = maybe_initial_meta(),  %% bootstrap pt
     Opts = default_opts(),
     process_flag(trap_exit, true),
     mnesia:subscribe({table, schema, simple}),
@@ -317,7 +359,10 @@ recover_tab({T, #{db_ref := DbRef,
             update_cf(Alias, T, R, St);
         false ->
             error({cannot_access_table, T})
-    end.
+    end;
+recover_tab(_, St) ->
+    St.
+
 
 %% TODO: generalize
 get_aliases() ->
@@ -376,6 +421,9 @@ try_load_admin_db(Alias, AliasOpts, #st{ backends = Bs
     end.
 
 -spec handle_call({alias(), req()}, any(), st()) -> gen_server_reply().
+handle_call({set_and_cache_env, Key, Value}, _From, St) ->
+    Res = set_and_cache_env_(Key, Value),
+    {reply, Res, St};
 handle_call({[], {add_aliases, Aliases}}, _From, St) ->
     St1 = do_add_aliases(Aliases, St),
     {reply, ok, St1};
@@ -491,6 +539,23 @@ handle_req(Alias, {delete_table, Name}, Backend, St) ->
             {reply, ok, maybe_update_main(Alias, Name, delete, St1)};
         {error, not_found} ->
             {reply, ok, St}
+    end;
+handle_req(Alias, {clear_table, Name}, Backend, #st{} = St) ->
+    case find_cf(Alias, Name, Backend, St) of
+	{ok, #{ status := open
+	      , type := column_family
+	      , db_ref := DbRef
+	      , cf_handle := CfH} = Cf} ->
+	    CfName = tab_to_cf_name(Name),
+	    ok = rocksdb:drop_column_family(DbRef, CfH),
+	    {ok, CfH1} = rocksdb:create_column_family(DbRef, CfName, cfopts()),
+	    ok = rocksdb:destroy_column_family(DbRef, CfH),
+	    Cf1 = Cf#{cf_handle := CfH1},
+	    St1 = update_cf(Alias, Name, Cf1, St),
+	    put_pt(Name, Cf1),
+	    {reply, ok, St1};
+	_ ->
+	    {reply, {error, not_found}, St}
     end;
 handle_req(Alias, {get_ref, Name}, Backend, #st{} = St) ->
     case find_cf(Alias, Name, Backend, St) of
