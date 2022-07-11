@@ -2,12 +2,13 @@
 {application, mnesia_rocksdb,
  [
   {description, "RocksDB backend plugin for Mnesia"},
-  {vsn, "1.0"},
+  {vsn, git},
   {modules, [mnesia_rocksdb, mnesia_rocksdb_app,
              mnesia_rocksdb_params, mnesia_rocksdb_sup,
              mnesia_rocksdb_tuning]},
   {registered, []},
   {mod, {mnesia_rocksdb_app, []}},
   {env, []},
+  {licenses, ["Apache-2.0"]},
   {applications, [kernel, stdlib, sext, rocksdb]}
  ]}.
