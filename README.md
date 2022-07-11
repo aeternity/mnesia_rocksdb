@@ -80,7 +80,7 @@ RocksDB supports a number of customization options. These can be specified
 by providing a `{Key, Value}` list named `rocksdb_opts` under `user_properties`,
 for example:
 
-```
+```erlang
 mnesia:create_table(foo, [{rocksdb_copies, [node()]},
                           ...
                           {user_properties,
@@ -93,7 +93,7 @@ for information on configuration parameters. Also see the section below on handl
 
 The default configuration for tables in `mnesia_rocksdb` is:
 
-```
+```erlang
 default_open_opts() ->
     [ {create_if_missing, true}
       , {cache_size,
@@ -195,7 +195,7 @@ our example. It returns a list of index terms.
 
 Given the following index plugin implementation:
 
-```
+```erlang
 -module(words).
 -export([words_f/3]).
 
@@ -212,7 +212,7 @@ words_(_) ->
 
 We can register the plugin and use it in table definitions:
 
-```
+```erlang
 Eshell V12.1.3  (abort with ^G)
 1> mnesia:start().
 ok
@@ -228,7 +228,7 @@ as an exported function along the node's code path.
 
 To see what happens when we insert an object, we can turn on call trace.
 
-```
+```erlang
 4> dbg:tracer().
 {ok,<0.108.0>}
 5> dbg:tp(words, x).
