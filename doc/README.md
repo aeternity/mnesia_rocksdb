@@ -16,21 +16,21 @@ is provided.
 ### <a name="Table_of_Contents">Table of Contents</a> ###
 
 
-1. [Usage](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Usage)
-1. [Prerequisites](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Prerequisites)
-1. [Getting started](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Getting_started)
-1. [Special features](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Special_features)
-1. [Customization](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Customization)
-1. [Handling of errors in write operations](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Handling_of_errors_in_write_operations)
-1. [Caveats](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Caveats)
+1. [Usage](#Usage)
+1. [Prerequisites](#Prerequisites)
+1. [Getting started](#Getting_started)
+1. [Special features](#Special_features)
+1. [Customization](#Customization)
+1. [Handling of errors in write operations](#Handling_of_errors_in_write_operations)
+1. [Caveats](#Caveats)
 
-1. [Mnesia backend plugins](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Mnesia_backend_plugins)
-1. [Background](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Background)
-1. [Design](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Design)
+1. [Mnesia backend plugins](#Mnesia_backend_plugins)
+1. [Background](#Background)
+1. [Design](#Design)
 
-1. [Mnesia index plugins](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Mnesia_index_plugins)
+1. [Mnesia index plugins](#Mnesia_index_plugins)
 
-1. [Rocksdb](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Rocksdb)
+1. [Rocksdb](#Rocksdb)
 
 
 
@@ -268,15 +268,15 @@ replaced by the new object.)
 
 
 <table width="100%" border="0" summary="list of modules">
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb.md" class="module">mnesia_rocksdb</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_admin.md" class="module">mnesia_rocksdb_admin</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_app.md" class="module">mnesia_rocksdb_app</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_lib.md" class="module">mnesia_rocksdb_lib</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_params.md" class="module">mnesia_rocksdb_params</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_sup.md" class="module">mnesia_rocksdb_sup</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_tuning.md" class="module">mnesia_rocksdb_tuning</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb.md" class="module">mrdb</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_index.md" class="module">mrdb_index</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_mutex.md" class="module">mrdb_mutex</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_select.md" class="module">mrdb_select</a></td></tr></table>
+<tr><td><a href="mnesia_rocksdb.md" class="module">mnesia_rocksdb</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_admin.md" class="module">mnesia_rocksdb_admin</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_app.md" class="module">mnesia_rocksdb_app</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_lib.md" class="module">mnesia_rocksdb_lib</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_params.md" class="module">mnesia_rocksdb_params</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_sup.md" class="module">mnesia_rocksdb_sup</a></td></tr>
+<tr><td><a href="mnesia_rocksdb_tuning.md" class="module">mnesia_rocksdb_tuning</a></td></tr>
+<tr><td><a href="mrdb.md" class="module">mrdb</a></td></tr>
+<tr><td><a href="mrdb_index.md" class="module">mrdb_index</a></td></tr>
+<tr><td><a href="mrdb_mutex.md" class="module">mrdb_mutex</a></td></tr>
+<tr><td><a href="mrdb_select.md" class="module">mrdb_select</a></td></tr></table>
 

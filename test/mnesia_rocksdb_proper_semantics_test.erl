@@ -78,6 +78,18 @@ setup_mnesia() ->
     ok = mnesia:delete_schema([node()]),
     ok = mnesia:create_schema([node()]),
     ok = mnesia:start(),
+    %%
+    %% dbg:tracer(),
+    %% dbg:tpl(mnesia_rocksdb_admin, x),
+    %% dbg:tpl(mnesia_rocksdb,x),
+    %% dbg:ctpl(mnesia_rocksdb, check_definition_entry),
+    %% dbg:ctpl(mnesia_rocksdb, '-check_definition/4-fun-0-'),
+    %% dbg:tpl(mnesia_rocksdb_lib,x),
+    %% dbg:tp(mnesia,x),
+    %% dbg:tpl(mrdb,x),
+    %% dbg:tp(rocksdb,x),
+    %% dbg:p(all,[c]),
+    %%
     {ok, rocksdb_copies} = mnesia_rocksdb:register().
 
 setup() ->
