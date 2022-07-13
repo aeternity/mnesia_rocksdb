@@ -67,6 +67,8 @@
 
 -type cf() :: mrdb:db_ref().
 
+-type rpt() :: undefined | map().
+
 -type req() :: {create_table, table(), properties()}
              | {delete_table, table()}
              | {load_table, table(), properties()}
@@ -75,7 +77,7 @@
              | {add_aliases, [alias()]}
              | {write_table_property, tabname(), tuple()}
              | {remove_aliases, [alias()]}
-             | {migrate, [{tabname(), map()}]}
+             | {migrate, [{tabname(), map()}], rpt()}
              | {prep_close, table()}
              | {close_table, table()}
 	     | {clear_table, table() | cf() }.
