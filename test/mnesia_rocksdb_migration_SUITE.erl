@@ -149,8 +149,9 @@ create_migrateable_db(Config) ->
     Config.
 
 fill_tabs(Tabs) ->
+    %% Fill with more than 300, since that's the currently hard-coded chunk size
     lists:foreach(fun(Tab) ->
-                          [mrdb:insert(Tab, {Tab, X, a}) || X <- lists:seq(1,3)]
+                          [mrdb:insert(Tab, {Tab, X, a}) || X <- lists:seq(1,500)]
                   end, Tabs).
 
 create_tabs(Tabs, Config) ->
