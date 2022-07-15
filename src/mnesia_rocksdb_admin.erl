@@ -510,12 +510,17 @@ intersection(A, B) ->
 
 -spec handle_req(alias(), req(), backend(), st()) -> gen_server_reply().
 handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
-    case create_trec(Alias, Name, Props, Backend, St) of
-        {ok, NewCf} ->
-            St1 = update_cf(Alias, Name, NewCf, St),
-            {reply, {ok, NewCf}, St1};
-        {error, _} = Error ->
-            {reply, Error, St}
+    case find_cf(Alias, Name, Backend, St) of
+        {ok, TRec} ->
+            {reply, {ok, TRec}, St};
+        error ->
+            case create_trec(Alias, Name, Props, Backend, St) of
+                {ok, NewCf} ->
+                    St1 = update_cf(Alias, Name, NewCf, St),
+                    {reply, {ok, NewCf}, St1};
+                {error, _} = Error ->
+                    {reply, Error, St}
+            end
     end;
 handle_req(Alias, {load_table, Name, Props}, Backend, St) ->
     try
