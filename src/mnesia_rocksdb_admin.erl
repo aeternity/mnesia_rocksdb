@@ -280,9 +280,12 @@ write_info(Alias, Tab, K, V) ->
     write_info_(get_ref({admin, Alias}), Tab, K, V).
 
 write_info_(Ref, Tab, K, V) ->
+    write_info_encv(Ref, Tab, K, term_to_binary(V)).
+
+write_info_encv(Ref, Tab, K, V) ->
     EncK = mnesia_rocksdb_lib:encode_key({info,Tab,K}, sext),
     maybe_write_standalone_info(Ref, K, V),
-    mrdb:rdb_put(Ref, EncK, term_to_binary(V), []).
+    mrdb:rdb_put(Ref, EncK, V, []).
 
 maybe_write_standalone_info(Ref, K, V) ->
     case Ref of
@@ -1228,7 +1231,18 @@ load_info_(Res, I, ARef, Tab) ->
             DecK = mnesia_rocksdb_lib:decode_key(K),
             case read_info_(ARef, Tab, DecK, undefined) of
                 undefined ->
-                    write_info_(ARef, Tab, DecK, V);
+                    write_info_encv(ARef, Tab, DecK, V);
+                <<131,_/binary>> = Value ->
+                    %% Due to a previous bug, info values could be double-encoded with binary_to_term()
+                    try binary_to_term(Value) of
+                        _DecVal ->
+                            %% We haven't been storing erlang-term encoded data as info,
+                            %% so assume this is double-encoded and correct
+                            write_info_encv(ARef, Tab, DecK, Value)
+                    catch
+                        error:_ ->
+                            skip
+                    end;
                 _ ->
                     skip
             end,
