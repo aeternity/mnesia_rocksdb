@@ -346,14 +346,11 @@ semantics(_Alias, index_fun) -> fun index_f/4;
 semantics(_Alias, _) -> undefined.
 
 is_index_consistent(Alias, {Tab, index, PosInfo}) ->
-    case info(Alias, Tab, {index_consistent, PosInfo}) of
-        true -> true;
-        _ -> false
-    end.
+    mnesia_rocksdb_admin:read_info(Alias, Tab, {index_consistent, PosInfo}, false).
 
-index_is_consistent(_Alias, {Tab, index, PosInfo}, Bool)
+index_is_consistent(Alias, {Tab, index, PosInfo}, Bool)
   when is_boolean(Bool) ->
-    mrdb:write_info(Tab, {index_consistent, PosInfo}, Bool).
+    mnesia_rocksdb_admin:write_info(Alias, Tab, {index_consistent, PosInfo}, Bool).
 
 
 %% PRIVATE FUN
