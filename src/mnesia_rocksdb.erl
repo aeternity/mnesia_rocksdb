@@ -162,6 +162,7 @@
             , type
             , status
             , on_error
+            , loaders = []
             }).
 
 -type data_tab() :: atom().
@@ -795,10 +796,10 @@ handle_call({create_table, Tab, Props}, _From,
         exit:{aborted, Error} ->
             {reply, {aborted, Error}, St}
     end;
-handle_call({load_table, _LoadReason, Props}, _From,
+handle_call({load_table, _LoadReason, Props}, {Pid,_},
             #st{alias = Alias, tab = Tab} = St) ->
     {ok, _Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
-    {reply, ok, St#st{status = active}};
+    {reply, ok, St#st{status = active, loaders = [Pid|St#st.loaders]}};
 handle_call({write_info, Key, Value}, _From, #st{tab = Tab} = St) ->
     mrdb:write_info(get_ref(Tab), Key, Value),
     {reply, ok, St};
@@ -823,9 +824,14 @@ handle_call({delete, Key}, _From, St) ->
 handle_call({match_delete, Pat}, _From, #st{tab = Tab} = St) ->
     Res = mrdb:match_delete(get_ref(Tab), Pat),
     {reply, Res, St};
-handle_call(close_table, _From, #st{alias = Alias, tab = Tab} = St) ->
-    _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
-    {reply, ok, St#st{status = undefined}};
+handle_call(close_table, {Pid,_}, #st{alias = Alias, tab = Tab, loaders = Ls} = St) ->
+    case Ls -- [Pid] of
+        [] ->
+            _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
+            {reply, ok, St#st{status = undefined, loaders = []}};
+        Ls1 ->
+            {reply, ok, St#st{loaders = Ls1}}
+    end;
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
     ok = mnesia_rocksdb_admin:delete_table(Alias, Tab),
     {stop, normal, ok, St#st{status = undefined}}.
