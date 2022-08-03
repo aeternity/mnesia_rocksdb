@@ -346,14 +346,11 @@ semantics(_Alias, index_fun) -> fun index_f/4;
 semantics(_Alias, _) -> undefined.
 
 is_index_consistent(Alias, {Tab, index, PosInfo}) ->
-    case info(Alias, Tab, {index_consistent, PosInfo}) of
-        true -> true;
-        _ -> false
-    end.
+    mnesia_rocksdb_admin:read_info(Alias, Tab, {index_consistent, PosInfo}, false).
 
-index_is_consistent(_Alias, {Tab, index, PosInfo}, Bool)
+index_is_consistent(Alias, {Tab, index, PosInfo}, Bool)
   when is_boolean(Bool) ->
-    mrdb:write_info(Tab, {index_consistent, PosInfo}, Bool).
+    mnesia_rocksdb_admin:write_info(Alias, Tab, {index_consistent, PosInfo}, Bool).
 
 
 %% PRIVATE FUN
@@ -454,8 +451,13 @@ close_table(Alias, Tab) ->
         error ->
             ok;
         _ ->
-            ok = mnesia_rocksdb_admin:prep_close(Alias, Tab),
-            close_table_(Alias, Tab)
+            case get(mnesia_dumper_dets) of
+                undefined ->
+                    ok = mnesia_rocksdb_admin:prep_close(Alias, Tab),
+                    close_table_(Alias, Tab);
+                _ ->
+                    ok
+            end
     end.
 
 close_table_(Alias, Tab) ->
@@ -798,7 +800,7 @@ handle_call({create_table, Tab, Props}, _From,
         exit:{aborted, Error} ->
             {reply, {aborted, Error}, St}
     end;
-handle_call({load_table, _LoadReason, Props}, _From,
+handle_call({load_table, _LoadReason, Props}, {Pid,_},
             #st{alias = Alias, tab = Tab} = St) ->
     {ok, _Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
     {reply, ok, St#st{status = active}};
@@ -826,7 +828,7 @@ handle_call({delete, Key}, _From, St) ->
 handle_call({match_delete, Pat}, _From, #st{tab = Tab} = St) ->
     Res = mrdb:match_delete(get_ref(Tab), Pat),
     {reply, Res, St};
-handle_call(close_table, _From, #st{alias = Alias, tab = Tab} = St) ->
+handle_call(close_table, {Pid,_}, #st{alias = Alias, tab = Tab} = St) ->
     _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
     {reply, ok, St#st{status = undefined}};
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
