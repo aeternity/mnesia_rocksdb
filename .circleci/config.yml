@@ -3,7 +3,7 @@ version: 2.1
 executors:
   aebuilder:
     docker:
-      - image: aeternity/builder
+      - image: aeternity/builder:bionic-otp23
         user: builder
     environment:
       ERLANG_ROCKSDB_BUILDOPTS: "-j2"
