@@ -2,7 +2,7 @@
 [{<<"hut">>,{pkg,<<"hut">>,<<"1.3.0">>},0},
  {<<"rocksdb">>,
   {git,"https://gitlab.com/seanhinde/erlang-rocksdb.git",
-       {ref,"9ae378391ffc94200bde24efcd7a4921eba688d0"}},
+       {ref,"a6a143a592c774082a8c08c43a6e987a49c2cd91"}},
   0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.8.0">>},0}]}.
 [
