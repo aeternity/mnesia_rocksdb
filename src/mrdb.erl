@@ -290,16 +290,13 @@ do_activity(F, Alias, Ctxt, WithLock) ->
             abort_and_pop(Cat, Err)
     end.
 
+-spec run_f(_, #{'activity':=#{'handle':=_,  'type':='batch' | 'tx',  'attempt'=>1,  'no_snapshot'=>boolean(),  'retries'=>non_neg_integer(),  _=>_},  'alias':=_,  'db_ref':=_,  'no_snapshot'=>boolean(),  'retries'=>non_neg_integer(),  _=>_}, boolean(), _) -> any().
 run_f(F, Ctxt, false, _) ->
     push_ctxt(Ctxt),
     F();
 run_f(F, Ctxt, true, Alias) ->
-    mrdb_mutex:do(
-      Alias,
-      fun() ->
-              push_ctxt(incr_attempt(Ctxt)),
-              F()
-      end).
+    push_ctxt(incr_attempt(Ctxt)),
+    mrdb_mutex:do(Alias, F).
 
 incr_attempt(#{ activity := #{type := tx, attempt := A} = Act, db_ref := DbRef } = C) ->
     {ok, TxH} = rdb_transaction(DbRef, []),
