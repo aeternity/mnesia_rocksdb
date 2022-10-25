@@ -326,7 +326,6 @@ call(Alias, Req, Timeout) ->
     end.
 
 start_link() ->
-    mrdb_mutex:ensure_tab(),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
