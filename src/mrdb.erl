@@ -105,6 +105,8 @@
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
 
+-define(BATCH_REF_DUMMY, '$mrdb_batch_ref_dummy').
+
 -type tab_name()  :: atom().
 -type alias()     :: atom().
 -type admin_tab() :: {admin, alias()}.
@@ -269,7 +271,7 @@ activity(Type, Alias, F) ->
                      #{ alias  => Alias
                       , db_ref => DbRef }, TxCtxt);
                batch ->
-                   Batch = get_batch_(DbRef),
+                   Batch = init_batch_ref(DbRef),
                    #{ activity => #{ type   => batch
                                    , handle => Batch }
                     , alias  => Alias
@@ -1007,18 +1009,20 @@ get_batch(#{db_ref := DbRef, batch := BatchRef}) ->
 get_batch(_) ->
     {error, badarg}.
 
-get_batch_(DbRef) ->
+init_batch_ref(DbRef) ->
     Ref = make_ref(),
-    {ok, Batch} = rdb_batch(),
-    pdict_put({mrdb_batch, Ref}, #{DbRef => Batch}),
+    pdict_put({mrdb_batch, Ref}, #{DbRef => ?BATCH_REF_DUMMY}),
     Ref.
+
+get_batch_(DbRef) -> Ref = make_ref(), {ok, Batch} = rdb_batch(),
+    pdict_put({mrdb_batch, Ref}, #{DbRef => Batch}), Ref.
 
 get_batch_(DbRef, BatchRef) ->
     Key = batch_ref_key(BatchRef),
     case pdict_get(Key) of
         undefined ->
             error(stale_batch_ref);
-        #{DbRef := Batch} ->
+        #{DbRef := Batch} when Batch =/= ?BATCH_REF_DUMMY ->
             Batch;
         Map ->
             {ok, Batch} = rdb_batch(),
@@ -1047,7 +1051,9 @@ write_batches(BatchRef, Opts) ->
             pdict_erase(Key),
             ret_batch_write_acc(
               maps:fold(
-                fun(DbRef, Batch, Acc) ->
+                fun(_, ?BATCH_REF_DUMMY, Acc) ->
+                        Acc;
+                    (DbRef, Batch, Acc) ->
                         case rocksdb:write_batch(DbRef, Batch, Opts) of
                             ok ->
                                 Acc;
