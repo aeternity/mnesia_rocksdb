@@ -800,7 +800,7 @@ handle_call({create_table, Tab, Props}, _From,
         exit:{aborted, Error} ->
             {reply, {aborted, Error}, St}
     end;
-handle_call({load_table, _LoadReason, Props}, {Pid,_},
+handle_call({load_table, _LoadReason, Props}, _,
             #st{alias = Alias, tab = Tab} = St) ->
     {ok, _Ref} = mnesia_rocksdb_admin:load_table(Alias, Tab, Props),
     {reply, ok, St#st{status = active}};
@@ -828,7 +828,7 @@ handle_call({delete, Key}, _From, St) ->
 handle_call({match_delete, Pat}, _From, #st{tab = Tab} = St) ->
     Res = mrdb:match_delete(get_ref(Tab), Pat),
     {reply, Res, St};
-handle_call(close_table, {Pid,_}, #st{alias = Alias, tab = Tab} = St) ->
+handle_call(close_table, _, #st{alias = Alias, tab = Tab} = St) ->
     _ = mnesia_rocksdb_admin:close_table(Alias, Tab),
     {reply, ok, St#st{status = undefined}};
 handle_call(delete_table, _From, #st{alias = Alias, tab = Tab} = St) ->
