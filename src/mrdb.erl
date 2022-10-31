@@ -506,6 +506,8 @@ rdb_write_batch_and_pop(BatchRef, C) ->
         pop_ctxt()
     end.
 
+rdb_release_batch(?BATCH_REF_DUMMY) ->
+    ok;
 rdb_release_batch(H) ->
     rocksdb:release_batch(H).
 
