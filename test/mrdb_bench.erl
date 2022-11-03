@@ -1,6 +1,6 @@
 -module(mrdb_bench).
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 init() ->
     mnesia:delete_schema([node()]),
