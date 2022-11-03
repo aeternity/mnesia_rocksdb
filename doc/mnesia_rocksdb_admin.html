@@ -1,0 +1,294 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module mnesia_rocksdb_admin</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module mnesia_rocksdb_admin</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+<p><b>Behaviours:</b> <a href="gen_server.html"><tt>gen_server</tt></a>.</p>
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-alias">alias()</a></h3>
+<p><tt>alias() = atom()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-backend">backend()</a></h3>
+<p><tt>backend() = #{db_ref := <a href="#type-db_ref">db_ref()</a>, cf_info := #{<a href="#type-table">table()</a> := <a href="#type-cf">cf()</a>}}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-cf">cf()</a></h3>
+<p><tt>cf() = <a href="/home/uwiger/ae/mnesia_rocksdb/doc/mrdb.html#type-db_ref">mrdb:db_ref()</a></tt></p>
+
+
+<h3 class="typedecl"><a name="type-db_ref">db_ref()</a></h3>
+<p><tt>db_ref() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb/doc/rocksdb.html#type-db_handle">rocksdb:db_handle()</a></tt></p>
+
+
+<h3 class="typedecl"><a name="type-gen_server_noreply">gen_server_noreply()</a></h3>
+<p><tt>gen_server_noreply() = {noreply, <a href="#type-st">st()</a>} | {stop, <a href="#type-reason">reason()</a>, <a href="#type-st">st()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-gen_server_reply">gen_server_reply()</a></h3>
+<p><tt>gen_server_reply() = {reply, <a href="#type-reply">reply()</a>, <a href="#type-st">st()</a>} | {stop, <a href="#type-reason">reason()</a>, <a href="#type-reply">reply()</a>, <a href="#type-st">st()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-properties">properties()</a></h3>
+<p><tt>properties() = [{atom(), any()}]</tt></p>
+
+
+<h3 class="typedecl"><a name="type-reason">reason()</a></h3>
+<p><tt>reason() = any()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-reply">reply()</a></h3>
+<p><tt>reply() = any()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-req">req()</a></h3>
+<p><tt>req() = {create_table, <a href="#type-table">table()</a>, <a href="#type-properties">properties()</a>} | {delete_table, <a href="#type-table">table()</a>} | {load_table, <a href="#type-table">table()</a>, <a href="#type-properties">properties()</a>} | {related_resources, <a href="#type-table">table()</a>} | {get_ref, <a href="#type-table">table()</a>} | {add_aliases, [<a href="#type-alias">alias()</a>]} | {write_table_property, <a href="#type-tabname">tabname()</a>, tuple()} | {remove_aliases, [<a href="#type-alias">alias()</a>]} | {migrate, [{<a href="#type-tabname">tabname()</a>, map()}], <a href="#type-rpt">rpt()</a>} | {prep_close, <a href="#type-table">table()</a>} | {close_table, <a href="#type-table">table()</a>} | {clear_table, <a href="#type-table">table()</a> | <a href="#type-cf">cf()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-rpt">rpt()</a></h3>
+<p><tt>rpt() = undefined | map()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-st">st()</a></h3>
+<p><tt>st() = #st{backends = #{<a href="#type-alias">alias()</a> =&gt; <a href="#type-backend">backend()</a>}, standalone = #{{<a href="#type-alias">alias()</a>, <a href="#type-table">table()</a>} := <a href="#type-cf">cf()</a>}, default_opts = [{atom(), term()}]}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-table">table()</a></h3>
+<p><tt>table() = <a href="#type-tabname">tabname()</a> | {admin, <a href="#type-alias">alias()</a>} | {<a href="#type-tabname">tabname()</a>, index, any()} | {<a href="#type-tabname">tabname()</a>, retainer, any()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-tabname">tabname()</a></h3>
+<p><tt>tabname() = atom()</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#clear_table-1">clear_table/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#ensure_started-0">ensure_started/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#get_cached_env-2">get_cached_env/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#get_ref-1">get_ref/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#get_ref-2">get_ref/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#load_table-3">load_table/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#meta-0">meta/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#migrate_standalone-2">migrate_standalone/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#migrate_standalone-3">migrate_standalone/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#prep_close-2">prep_close/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#read_info-1">read_info/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#read_info-2">read_info/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#read_info-4">read_info/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#related_resources-2">related_resources/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#request_ref-2">request_ref/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#set_and_cache_env-2">set_and_cache_env/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#start_link-0">start_link/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#write_info-4">write_info/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#write_table_property-3">write_table_property/3</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="add_aliases-1">add_aliases/1</a></h3>
+<div class="spec">
+<p><tt>add_aliases(Aliases) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="clear_table-1">clear_table/1</a></h3>
+<div class="spec">
+<p><tt>clear_table(Name) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="close_table-2">close_table/2</a></h3>
+<div class="spec">
+<p><tt>close_table(Alias, Name) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="code_change-3">code_change/3</a></h3>
+<div class="spec">
+<p><tt>code_change(FromVsn, St, Extra) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="create_table-3">create_table/3</a></h3>
+<div class="spec">
+<p><tt>create_table(Alias, Name, Props) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="delete_table-2">delete_table/2</a></h3>
+<div class="spec">
+<p><tt>delete_table(Alias::<a href="#type-alias">alias()</a>, Name::<a href="#type-tabname">tabname()</a>) -&gt; ok</tt><br></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="ensure_started-0">ensure_started/0</a></h3>
+<div class="spec">
+<p><tt>ensure_started() -&gt; ok</tt><br></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="get_cached_env-2">get_cached_env/2</a></h3>
+<div class="spec">
+<p><tt>get_cached_env(Key, Default) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="get_ref-1">get_ref/1</a></h3>
+<div class="spec">
+<p><tt>get_ref(Name) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="get_ref-2">get_ref/2</a></h3>
+<div class="spec">
+<p><tt>get_ref(Name, Default) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_call-3">handle_call/3</a></h3>
+<div class="spec">
+<p><tt>handle_call(Req::{<a href="#type-alias">alias()</a>, <a href="#type-req">req()</a>}, From::any(), St::<a href="#type-st">st()</a>) -&gt; <a href="#type-gen_server_reply">gen_server_reply()</a></tt><br></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_cast-2">handle_cast/2</a></h3>
+<div class="spec">
+<p><tt>handle_cast(Msg::any(), St::<a href="#type-st">st()</a>) -&gt; <a href="#type-gen_server_noreply">gen_server_noreply()</a></tt><br></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_info-2">handle_info/2</a></h3>
+<div class="spec">
+<p><tt>handle_info(Msg::any(), St::<a href="#type-st">st()</a>) -&gt; <a href="#type-gen_server_noreply">gen_server_noreply()</a></tt><br></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="init-1">init/1</a></h3>
+<div class="spec">
+<p><tt>init(X1) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="load_table-3">load_table/3</a></h3>
+<div class="spec">
+<p><tt>load_table(Alias, Name, Props) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="meta-0">meta/0</a></h3>
+<div class="spec">
+<p><tt>meta() -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="migrate_standalone-2">migrate_standalone/2</a></h3>
+<div class="spec">
+<p><tt>migrate_standalone(Alias, Tabs) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="migrate_standalone-3">migrate_standalone/3</a></h3>
+<div class="spec">
+<p><tt>migrate_standalone(Alias, Tabs, Rpt0) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="prep_close-2">prep_close/2</a></h3>
+<div class="spec">
+<p><tt>prep_close(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="read_info-1">read_info/1</a></h3>
+<div class="spec">
+<p><tt>read_info(TRec) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="read_info-2">read_info/2</a></h3>
+<div class="spec">
+<p><tt>read_info(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="read_info-4">read_info/4</a></h3>
+<div class="spec">
+<p><tt>read_info(Alias, Tab, K, Default) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="related_resources-2">related_resources/2</a></h3>
+<div class="spec">
+<p><tt>related_resources(Alias, Name) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="remove_aliases-1">remove_aliases/1</a></h3>
+<div class="spec">
+<p><tt>remove_aliases(Aliases) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="request_ref-2">request_ref/2</a></h3>
+<div class="spec">
+<p><tt>request_ref(Alias, Name) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="set_and_cache_env-2">set_and_cache_env/2</a></h3>
+<div class="spec">
+<p><tt>set_and_cache_env(Key, Value) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="start_link-0">start_link/0</a></h3>
+<div class="spec">
+<p><tt>start_link() -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="terminate-2">terminate/2</a></h3>
+<div class="spec">
+<p><tt>terminate(X1, St) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="write_info-4">write_info/4</a></h3>
+<div class="spec">
+<p><tt>write_info(Alias, Tab, K, V) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="write_table_property-3">write_table_property/3</a></h3>
+<div class="spec">
+<p><tt>write_table_property(Alias, Tab, Prop) -&gt; any()</tt></p>
+<p> </p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

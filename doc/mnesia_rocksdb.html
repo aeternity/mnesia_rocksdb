@@ -1,0 +1,529 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module mnesia_rocksdb</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module mnesia_rocksdb</h1>
+<ul class="index"><li><a href="#description">Description</a></li><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>rocksdb storage backend for Mnesia.
+
+<p><b>Behaviours:</b> <a href="gen_server.html"><tt>gen_server</tt></a>, <a href="mnesia_backend_type.html"><tt>mnesia_backend_type</tt></a>.</p>
+
+<h2><a name="description">Description</a></h2><p>rocksdb storage backend for Mnesia.</p>
+ 
+  This module implements a mnesia backend callback plugin.
+  It's specifically documented to try to explain the workings of
+  backend plugins.
+ 
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-alias">alias()</a></h3>
+<p><tt>alias() = atom()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-data_tab">data_tab()</a></h3>
+<p><tt>data_tab() = atom()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-error">error()</a></h3>
+<p><tt>error() = {error, any()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-index_info">index_info()</a></h3>
+<p><tt>index_info() = {<a href="#type-index_pos">index_pos()</a>, <a href="#type-index_type">index_type()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-index_pos">index_pos()</a></h3>
+<p><tt>index_pos() = integer() | {atom()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-index_tab">index_tab()</a></h3>
+<p><tt>index_tab() = {<a href="#type-data_tab">data_tab()</a>, index, <a href="#type-index_info">index_info()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-index_type">index_type()</a></h3>
+<p><tt>index_type() = ordered</tt></p>
+
+
+<h3 class="typedecl"><a name="type-retainer_name">retainer_name()</a></h3>
+<p><tt>retainer_name() = any()</tt></p>
+
+
+<h3 class="typedecl"><a name="type-retainer_tab">retainer_tab()</a></h3>
+<p><tt>retainer_tab() = {<a href="#type-data_tab">data_tab()</a>, retainer, <a href="#type-retainer_name">retainer_name()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-table">table()</a></h3>
+<p><tt>table() = <a href="#type-data_tab">data_tab()</a> | <a href="#type-index_tab">index_tab()</a> | <a href="#type-retainer_tab">retainer_tab()</a></tt></p>
+
+
+<h3 class="typedecl"><a name="type-table_type">table_type()</a></h3>
+<p><tt>table_type() = set | ordered_set | bag</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_aliases-1">add_aliases/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#check_definition-4">check_definition/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close_table-2">close_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#code_change-3">code_change/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#create_schema-1">create_schema/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#create_schema-2">create_schema/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#create_table-3">create_table/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#decode_key-1">decode_key/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#decode_key-2">decode_key/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#decode_val-1">decode_val/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#decode_val-3">decode_val/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#default_alias-0">default_alias/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#delete_table-2">delete_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#encode_key-1">encode_key/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#encode_key-2">encode_key/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#encode_val-1">encode_val/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#encode_val-2">encode_val/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#fixtable-3">fixtable/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#index_is_consistent-3">index_is_consistent/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#info-3">info/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init_backend-0">init_backend/0</a></td><td>Called by mnesia_schema in order to intialize the backend.</td></tr>
+<tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#is_index_consistent-2">is_index_consistent/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#ix_listvals-3">ix_listvals/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#ix_prefixes-3">ix_prefixes/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#load_table-4">load_table/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#lookup-3">lookup/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#match_delete-3">match_delete/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#real_suffixes-0">real_suffixes/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#receive_data-5">receive_data/5</a></td><td></td></tr>
+<tr><td valign="top"><a href="#receive_done-4">receive_done/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#receiver_first_message-4">receiver_first_message/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#register-0">register/0</a></td><td>Equivalent to <a href="#register-1"><tt>register(rocksdb_copies)</tt></a>.
+</td></tr>
+<tr><td valign="top"><a href="#register-1">register/1</a></td><td>Convenience function for registering a mnesia_rocksdb backend plugin.</td></tr>
+<tr><td valign="top"><a href="#remove_aliases-1">remove_aliases/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#repair_continuation-2">repair_continuation/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#semantics-2">semantics/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#sender_handle_info-5">sender_handle_info/5</a></td><td></td></tr>
+<tr><td valign="top"><a href="#sender_init-4">sender_init/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#show_table-1">show_table/1</a></td><td>A debug function that shows the rocksdb table content.</td></tr>
+<tr><td valign="top"><a href="#show_table-2">show_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#slot-3">slot/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#start_proc-6">start_proc/6</a></td><td></td></tr>
+<tr><td valign="top"><a href="#sync_close_table-2">sync_close_table/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#tmp_suffixes-0">tmp_suffixes/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#validate_key-6">validate_key/6</a></td><td></td></tr>
+<tr><td valign="top"><a href="#validate_record-6">validate_record/6</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="add_aliases-1">add_aliases/1</a></h3>
+<div class="spec">
+<p><tt>add_aliases(Aliases) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="check_definition-4">check_definition/4</a></h3>
+<div class="spec">
+<p><tt>check_definition(Alias, Tab, Nodes, Props) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="close_table-2">close_table/2</a></h3>
+<div class="spec">
+<p><tt>close_table(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="code_change-3">code_change/3</a></h3>
+<div class="spec">
+<p><tt>code_change(FromVsn, St, Extra) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="create_schema-1">create_schema/1</a></h3>
+<div class="spec">
+<p><tt>create_schema(Nodes) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="create_schema-2">create_schema/2</a></h3>
+<div class="spec">
+<p><tt>create_schema(Nodes, Aliases) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="create_table-3">create_table/3</a></h3>
+<div class="spec">
+<p><tt>create_table(Alias, Tab, Props) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="decode_key-1">decode_key/1</a></h3>
+<div class="spec">
+<p><tt>decode_key(Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="decode_key-2">decode_key/2</a></h3>
+<div class="spec">
+<p><tt>decode_key(Key, Metadata) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="decode_val-1">decode_val/1</a></h3>
+<div class="spec">
+<p><tt>decode_val(Val) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="decode_val-3">decode_val/3</a></h3>
+<div class="spec">
+<p><tt>decode_val(Val, Key, Metadata) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="default_alias-0">default_alias/0</a></h3>
+<div class="spec">
+<p><tt>default_alias() -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="delete-3">delete/3</a></h3>
+<div class="spec">
+<p><tt>delete(Alias, Tab, Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="delete_table-2">delete_table/2</a></h3>
+<div class="spec">
+<p><tt>delete_table(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="encode_key-1">encode_key/1</a></h3>
+<div class="spec">
+<p><tt>encode_key(Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="encode_key-2">encode_key/2</a></h3>
+<div class="spec">
+<p><tt>encode_key(Key, Metadata) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="encode_val-1">encode_val/1</a></h3>
+<div class="spec">
+<p><tt>encode_val(Val) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="encode_val-2">encode_val/2</a></h3>
+<div class="spec">
+<p><tt>encode_val(Val, Metadata) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="first-2">first/2</a></h3>
+<div class="spec">
+<p><tt>first(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="fixtable-3">fixtable/3</a></h3>
+<div class="spec">
+<p><tt>fixtable(Alias, Tab, Bool) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_call-3">handle_call/3</a></h3>
+<div class="spec">
+<p><tt>handle_call(M, From, St) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_cast-2">handle_cast/2</a></h3>
+<div class="spec">
+<p><tt>handle_cast(X1, St) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="handle_info-2">handle_info/2</a></h3>
+<div class="spec">
+<p><tt>handle_info(EXIT, St) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="index_is_consistent-3">index_is_consistent/3</a></h3>
+<div class="spec">
+<p><tt>index_is_consistent(Alias, X2, Bool) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="info-3">info/3</a></h3>
+<div class="spec">
+<p><tt>info(Alias, Tab, Item) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="init-1">init/1</a></h3>
+<div class="spec">
+<p><tt>init(X1) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="init_backend-0">init_backend/0</a></h3>
+<div class="spec">
+<p><tt>init_backend() -&gt; any()</tt></p>
+<p> </p>
+</div><p><p>Called by mnesia_schema in order to intialize the backend</p>
+ 
+  <p>This is called when the backend is registered with the first alias, or ...</p>
+ 
+  <p>See OTP issue #425 (16 Feb 2021). This callback is supposed to be called  
+before first use of the backend, but unfortunately, it is only called at  
+mnesia startup and when a backend module is registered MORE THAN ONCE.  
+This means we need to handle this function being called multiple times.</p>
+ 
+  <p>The bug has been fixed as of OTP 24.0-rc3</p>
+ 
+  <p>If processes need to be started, this can be done using
+  <code>mnesia_ext_sup:start_proc(Name, Mod, F, Args [, Opts])</code>  
+where Opts are parameters for the supervised child:</p>
+ 
+  * <code>restart</code> (default: <code>transient</code>)
+  * <code>shutdown</code> (default: <code>120000</code>)
+  * <code>type</code> (default: <code>worker</code>)
+  * <code>modules</code> (default: <code>[Mod]</code>)</p>
+
+<h3 class="function"><a name="insert-3">insert/3</a></h3>
+<div class="spec">
+<p><tt>insert(Alias, Tab, Obj) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="is_index_consistent-2">is_index_consistent/2</a></h3>
+<div class="spec">
+<p><tt>is_index_consistent(Alias, X2) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="ix_listvals-3">ix_listvals/3</a></h3>
+<div class="spec">
+<p><tt>ix_listvals(Tab, Pos, Obj) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="ix_prefixes-3">ix_prefixes/3</a></h3>
+<div class="spec">
+<p><tt>ix_prefixes(Tab, Pos, Obj) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="last-2">last/2</a></h3>
+<div class="spec">
+<p><tt>last(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="load_table-4">load_table/4</a></h3>
+<div class="spec">
+<p><tt>load_table(Alias, Tab, LoadReason, Props) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="lookup-3">lookup/3</a></h3>
+<div class="spec">
+<p><tt>lookup(Alias, Tab, Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="match_delete-3">match_delete/3</a></h3>
+<div class="spec">
+<p><tt>match_delete(Alias, Tab, Pat) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="next-3">next/3</a></h3>
+<div class="spec">
+<p><tt>next(Alias, Tab, Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="prev-3">prev/3</a></h3>
+<div class="spec">
+<p><tt>prev(Alias, Tab, Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="real_suffixes-0">real_suffixes/0</a></h3>
+<div class="spec">
+<p><tt>real_suffixes() -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="receive_data-5">receive_data/5</a></h3>
+<div class="spec">
+<p><tt>receive_data(Data, Alias, Tab, Sender, State) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="receive_done-4">receive_done/4</a></h3>
+<div class="spec">
+<p><tt>receive_done(Alias, Tab, Sender, State) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="receiver_first_message-4">receiver_first_message/4</a></h3>
+<div class="spec">
+<p><tt>receiver_first_message(Pid, Msg, Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="register-0">register/0</a></h3>
+<div class="spec">
+<p><tt>register() -&gt; {ok, <a href="#type-alias">alias()</a>} | {error, term()}</tt><br></p>
+<p> </p>
+</div><p>Equivalent to <a href="#register-1"><tt>register(rocksdb_copies)</tt></a>.</p>
+
+
+<h3 class="function"><a name="register-1">register/1</a></h3>
+<div class="spec">
+<p><tt>register(Alias::<a href="#type-alias">alias()</a>) -&gt; {ok, <a href="#type-alias">alias()</a>} | <a href="#type-error">error()</a></tt><br></p>
+<p> </p>
+</div><p><p>Convenience function for registering a mnesia_rocksdb backend plugin</p>
+ 
+  The function used to register a plugin is <code>mnesia_schema:add_backend_type(Alias, Module)</code>
+  where <code>Module</code> implements a backend_type behavior. <code>Alias</code> is an atom, and is used
+  in the same way as <code>ram_copies</code> etc. The default alias is <code>rocksdb_copies</code>.</p>
+
+<h3 class="function"><a name="remove_aliases-1">remove_aliases/1</a></h3>
+<div class="spec">
+<p><tt>remove_aliases(Aliases) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="repair_continuation-2">repair_continuation/2</a></h3>
+<div class="spec">
+<p><tt>repair_continuation(Cont, Ms) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="select-1">select/1</a></h3>
+<div class="spec">
+<p><tt>select(Cont) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="select-3">select/3</a></h3>
+<div class="spec">
+<p><tt>select(Alias, Tab, Ms) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="select-4">select/4</a></h3>
+<div class="spec">
+<p><tt>select(Alias, IxTab, Ms, Limit) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="semantics-2">semantics/2</a></h3>
+<div class="spec">
+<p><tt>semantics(Alias, X2) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="sender_handle_info-5">sender_handle_info/5</a></h3>
+<div class="spec">
+<p><tt>sender_handle_info(Msg, Alias, Tab, ReceiverPid, Cont) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="sender_init-4">sender_init/4</a></h3>
+<div class="spec">
+<p><tt>sender_init(Alias, Tab, RemoteStorage, Pid) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="show_table-1">show_table/1</a></h3>
+<div class="spec">
+<p><tt>show_table(Tab) -&gt; any()</tt></p>
+<p> </p>
+</div><p>A debug function that shows the rocksdb table content</p>
+
+<h3 class="function"><a name="show_table-2">show_table/2</a></h3>
+<div class="spec">
+<p><tt>show_table(Tab, Limit) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="slot-3">slot/3</a></h3>
+<div class="spec">
+<p><tt>slot(Alias, Tab, Pos) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="start_proc-6">start_proc/6</a></h3>
+<div class="spec">
+<p><tt>start_proc(Alias, Tab, Type, ProcName, Props, RdbOpts) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="sync_close_table-2">sync_close_table/2</a></h3>
+<div class="spec">
+<p><tt>sync_close_table(Alias, Tab) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="terminate-2">terminate/2</a></h3>
+<div class="spec">
+<p><tt>terminate(Reason, St) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="tmp_suffixes-0">tmp_suffixes/0</a></h3>
+<div class="spec">
+<p><tt>tmp_suffixes() -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="update_counter-4">update_counter/4</a></h3>
+<div class="spec">
+<p><tt>update_counter(Alias, Tab, C, Val) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="validate_key-6">validate_key/6</a></h3>
+<div class="spec">
+<p><tt>validate_key(Alias, Tab, RecName, Arity, Type, Key) -&gt; any()</tt></p>
+<p> </p>
+</div>
+
+<h3 class="function"><a name="validate_record-6">validate_record/6</a></h3>
+<div class="spec">
+<p><tt>validate_record(Alias, Tab, RecName, Arity, Type, Obj) -&gt; any()</tt></p>
+<p> </p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

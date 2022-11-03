@@ -117,7 +117,9 @@
                | index()
                | retainer().
 
--type retries() :: non_neg_integer().
+-type inner() :: non_neg_integer().
+-type outer() :: non_neg_integer().
+-type retries() :: outer() | {inner(), outer()}.
 
 %% activity type 'ets' makes no sense in this context
 -type mnesia_activity_type() :: transaction
@@ -143,7 +145,7 @@
 
 -type tx_activity() :: #{ type    := 'tx'
                         , handle  := tx_handle()
-                        , attempt := non_neg_integer() }.
+                        , attempt := 'undefined' | retries() }.
 -type batch_activity() :: #{ type   := 'batch'
                            , handle := batch_handle() }.
 -type activity() :: tx_activity() | batch_activity().
@@ -256,6 +258,14 @@ release_snapshot(SHandle) ->
 %% The re-run transaction may still fail, if new transactions, or non-transaction writes interfere with
 %% the commit set. It will then be re-run again, until the retry count is exhausted.
 %%
+%% For finer-grained retries, it's possible to set `retries => {Inner, Outer}'. Setting the retries to a
+%% single number, `Retries', is analogous to `{0, Retries}`. Each outer retry requests a 'mutex lock' by
+%% waiting in a FIFO queue. Once it receives the lock, it will try the activity once + as many retries
+%% as specified by `Inner'. If these fail, the activity again goes to the FIFO queue (ending up last
+%% in line) if there are outer retries remaining. When all retries are exhaused, the activity aborts
+%% with `retry_limit'. Note that transactions, being optimistic, do not request a lock on the first
+%% attempt, but only on outer retries (the first retry is always an outer retry).
+%%
 %% Valid `TxOpts' are `#{no_snapshot => boolean(), retries => retries()}'.
 %%
 %% To simplify code adaptation, `tx | transaction | sync_transaction' are synonyms, and
@@ -277,32 +287,66 @@ activity(Type, Alias, F) ->
                     , alias  => Alias
                     , db_ref => DbRef }
            end,
-    do_activity(F, Alias, Ctxt, false).
+    do_activity(F, Alias, Ctxt).
 
-do_activity(F, Alias, Ctxt, WithLock) ->
-    try run_f(F, Ctxt, WithLock, Alias) of
+do_activity(F, Alias, Ctxt) ->
+    try try_f(F, Ctxt)
+    catch
+        throw:{?MODULE, busy} ->
+            retry_activity(F, Alias, Ctxt)
+    end.
+
+try_f(F, Ctxt) ->
+    try run_f(F, Ctxt) of
         Res ->
-            try commit_and_pop(Res)
-            catch
-                throw:{?MODULE, busy} ->
-                    do_activity(F, Alias, Ctxt, true)
-            end
+            commit_and_pop(Res)
     catch
         Cat:Err ->
             abort_and_pop(Cat, Err)
     end.
 
--spec run_f(_, #{'activity':=#{'handle':=_,  'type':='batch' | 'tx',  'attempt'=>1,  'no_snapshot'=>boolean(),  'retries'=>non_neg_integer(),  _=>_},  'alias':=_,  'db_ref':=_,  'no_snapshot'=>boolean(),  'retries'=>non_neg_integer(),  _=>_}, boolean(), _) -> any().
-run_f(F, Ctxt, false, _) ->
+run_f(F, Ctxt) ->
     push_ctxt(Ctxt),
-    F();
-run_f(F, Ctxt, true, Alias) ->
-    push_ctxt(incr_attempt(Ctxt)),
-    mrdb_mutex:do(Alias, F).
+    F().
 
-incr_attempt(#{ activity := #{type := tx, attempt := A} = Act, db_ref := DbRef } = C) ->
+incr_attempt(0, {_,O}) when O > 0 ->
+    {outer, {0,1}};
+incr_attempt({I,O}, {Ri,Ro}) when is_integer(I), is_integer(O),
+                                  is_integer(Ri), is_integer(Ro) ->
+    if I < Ri -> {inner, {I+1, O}};
+       O < Ro -> {outer, {0, O+1}};
+       true ->
+            error
+    end;
+incr_attempt(_, _) ->
+    error.
+                    
+retry_activity(F, Alias, #{activity := #{ type := Type
+                                        , attempt := A
+                                        , retries := R} = Act} = Ctxt) ->
+    case incr_attempt(A, R) of
+        {RetryCtxt, A1} ->
+            Act1 = Act#{attempt := A1},
+            Ctxt1 = Ctxt#{activity := Act1},
+            try retry_activity_(RetryCtxt, F, Alias, restart_ctxt(Ctxt1))
+            catch
+                throw:{?MODULE, busy} ->
+                    retry_activity(F, Alias, Ctxt1)
+            end;
+        error ->
+            return_abort(Type, error, retry_limit)
+    end.
+
+retry_activity_(inner, F, Alias, Ctxt) ->
+    mrdb_stats:incr(Alias, inner_retries, 1),
+    try_f(F, Ctxt);
+retry_activity_(outer, F, Alias, Ctxt) ->
+    mrdb_stats:incr(Alias, outer_retries, 1),
+    mrdb_mutex:do(Alias, fun() -> try_f(F, Ctxt) end).
+
+restart_ctxt(#{ activity := #{type := tx} = Act, db_ref := DbRef } = C) ->
     {ok, TxH} = rdb_transaction(DbRef, []),
-    Act1 = Act#{attempt := A+1, handle := TxH},
+    Act1 = Act#{handle := TxH},
     C1 = C#{ activity := Act1 },
     case maps:is_key(snapshot, C) of
         true ->
@@ -375,10 +419,14 @@ check_tx_opts(Opts) ->
     end.
 
 check_retries(#{retries := Retries} = Opts) ->
-    if is_integer(Retries), Retries >= 0 ->
-           Opts;
-       true ->
-           error({invalid_tx_option, {retries, Retries}})
+    case Retries of
+        _ when is_integer(Retries), Retries >= 0 ->
+            Opts#{retries := {0, Retries}};
+        {Inner, Outer} when is_integer(Inner), is_integer(Outer),
+                            Inner >= 0, Outer >= 0 ->
+            Opts;
+        _ ->
+            error({invalid_tx_option, {retries, Retries}})
     end.
 
 check_nosnap(#{no_snapshot := NoSnap} = Opts) ->
@@ -393,7 +441,7 @@ create_tx(Opts, DbRef) ->
     {ok, TxH} = rdb_transaction(DbRef, []),
     Opts#{activity => maps:merge(Opts, #{ type    => tx
                                         , handle  => TxH
-                                        , attempt => 1})}.
+                                        , attempt => 0 })}.
 
 maybe_snapshot(#{no_snapshot := NoSnap} = Opts, DbRef) ->
     case NoSnap of
@@ -413,8 +461,7 @@ commit_and_pop(Res) ->
                     Res;
                 {error, {error, "Resource busy" ++ _ = Busy}} ->
                     case A of
-                        #{retries := Retries, attempt := Att}
-                          when Att =< Retries ->
+                        #{retries := {I,O}} when I > 0; O > 0 ->
                             throw({?MODULE, busy});
                         _ ->
                             error({error, Busy})
@@ -530,7 +577,7 @@ new_tx(#{activity := _}, _) ->
 new_tx(Tab, Opts) ->
     #{db_ref := DbRef} = R = ensure_ref(Tab),
     {ok, TxH} = rdb_transaction(DbRef, write_opts(R, Opts)),
-    R#{activity => #{type => tx, handle => TxH, attempt => 1}}.
+    R#{activity => #{type => tx, handle => TxH, attempt => 0}}.
 
 -spec tx_ref(ref_or_tab() | db_ref() | db_ref(), tx_handle()) -> db_ref().
 tx_ref(Tab, TxH) ->
@@ -540,7 +587,7 @@ tx_ref(Tab, TxH) ->
         #{activity := #{type := tx, handle := OtherTxH}} ->
             error({tx_handle_conflict, OtherTxH});
         R ->
-            R#{activity => #{type => tx, handle => TxH, attempt => 1}}
+            R#{activity => #{type => tx, handle => TxH, attempt => 0}}
     end.
 
 -spec tx_commit(tx_handle() | db_ref()) -> ok.

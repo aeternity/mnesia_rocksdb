@@ -24,6 +24,7 @@
         , mrdb_abort/1
         , mrdb_two_procs/1
         , mrdb_two_procs_tx_restart/1
+        , mrdb_two_procs_tx_inner_restart/1
         , mrdb_two_procs_snap/1
         , mrdb_three_procs/1
         ]).
@@ -53,6 +54,7 @@ groups() ->
                          , mrdb_abort
                          , mrdb_two_procs
                          , mrdb_two_procs_tx_restart
+                         , mrdb_two_procs_tx_inner_restart
                          , mrdb_two_procs_snap
                          , mrdb_three_procs ]}
     ].
@@ -287,10 +289,17 @@ mrdb_abort(Config) ->
 mrdb_two_procs(Config) ->
     tr_ct:with_trace(fun mrdb_two_procs_/1, Config,
                      tr_flags(
-                       {self(), [call, sos, p]},
+                       {self(), [call, sos, p, 'receive']},
                        tr_patterns(
                          mrdb, [ {mrdb, insert, 2, x}
                                , {mrdb, read, 2, x}
+                               , {mrdb, retry_activity, 3, x}
+                               , {mrdb, try_f, 2, x}
+                               , {mrdb, incr_attempt, 2, x}
+                               , {mrdb_mutex, do, 2, x}
+                               , {mrdb_mutex_serializer, do, 2, x}
+                               , {?MODULE, wait_for_other, 2, x}
+                               , {?MODULE, go_ahead_other, 1, x}
                                , {mrdb, activity, x}], tr_opts()))).
 
 mrdb_two_procs_(Config) ->
@@ -314,11 +323,16 @@ mrdb_two_procs_(Config) ->
                  Pre = mrdb:read(R, a),
                  go_ahead_other(POther),
                  await_other_down(POther, MRef, ?LINE),
+                 %% The test proc is still inside the transaction, and POther
+                 %% has terminated/committed. If we now read 'a', we should see
+                 %% the value that POther wrote (no isolation).
                  [{R, a, 17}] = mrdb:read(R, a),
                  ok = mrdb:insert(R, {R, a, 18})
          end,
-    go_ahead_other(1, POther),
+    go_ahead_other(0, POther),
     Do0 = get_dict(),
+    %% Our transaction should fail due to the resource conflict, and because
+    %% we're not using retries.
     try mrdb:activity({tx, #{no_snapshot => true,
                              retries => 0}}, rdb, F1) of
         ok -> error(unexpected)
@@ -339,6 +353,7 @@ mrdb_two_procs_tx_restart_(Config) ->
     R = ?FUNCTION_NAME,
     Parent = self(),
     Created = create_tabs([{R, []}], Config),
+    check_stats(rdb),
     mrdb:insert(R, {R, a, 1}),
     Pre = mrdb:read(R, a),
     F0 = fun() ->
@@ -354,7 +369,7 @@ mrdb_two_procs_tx_restart_(Config) ->
                  OtherWrite = [{R, a, 17}],
                  Att = get_attempt(),
                  Expected = case Att of
-                                1 -> Pre;
+                                0 -> Pre;
                                 _ -> OtherWrite
                             end,
                  Expected = mrdb:read(R, a),
@@ -363,11 +378,85 @@ mrdb_two_procs_tx_restart_(Config) ->
                  OtherWrite = mrdb:read(R, a),
                  ok = mrdb:insert(R, {R, a, 18})
          end,
-    go_ahead_other(1, POther),
+    go_ahead_other(0, POther),
     Do0 = get_dict(),
     mrdb:activity({tx, #{no_snapshot => true}}, rdb, F1),
     dictionary_unchanged(Do0),
+    check_stats(rdb),
     [{R, a, 18}] = mrdb:read(R, a),
+    delete_tabs(Created),
+    ok.
+
+mrdb_two_procs_tx_inner_restart(Config) ->
+    tr_ct:with_trace(fun mrdb_two_procs_tx_inner_restart_/1, Config,
+                     dbg_tr_opts()).
+
+mrdb_two_procs_tx_inner_restart_(Config) ->
+    R = ?FUNCTION_NAME,
+    Parent = self(),
+    Created = create_tabs([{R, []}], Config),
+    mrdb:insert(R, {R, a, 1}),
+    mrdb:insert(R, {R, b, 1}),
+    PreA = mrdb:read(R, a),
+    PreB = mrdb:read(R, b),
+    #{inner_retries := Ri0, outer_retries := Ro0} = check_stats(rdb),
+    F0 = fun() ->
+                 wait_for_other(Parent, ?LINE),
+                 ok = mrdb:insert(R, {R, a, 17}),
+                 wait_for_other(Parent, ?LINE)
+         end,
+    F1 = fun() ->
+                 wait_for_other(Parent, ?LINE),
+                 ok = mrdb:insert(R, {R, b, 147}),
+                 wait_for_other(Parent, ?LINE)
+         end,
+
+    Spawn = fun(F) ->
+                    Res = spawn_opt(
+                            fun() ->
+                                    ok = mrdb:activity(tx, rdb, F)
+                            end, [monitor]),
+                    Res
+            end,
+    {P1, MRef1} = Spawn(F0),
+    {P2, MRef2} = Spawn(F1),
+    F2 = fun() ->
+                 PostA = [{R, a, 17}],  % once F0 (P1) has committed
+                 PostB = [{R, b, 147}], % once F1 (P2) has committed
+                 ARes = mrdb:read(R, a),  % We need to read first to establish a pre-image
+                 BRes = mrdb:read(R, b),
+                 Att = get_attempt(),
+                 ct:log("Att = ~p", [Att]),
+                 case Att of
+                     0 ->                         % This is the first run (no retry yet)
+                         ARes = PreA,
+                         BRes = PreB,
+                         go_ahead_other(0, P1),   % Having our pre-image, now let P1 write
+                         go_ahead_other(0, P1),   % Let P1 commit, then await DOWN (normal)
+                         await_other_down(P1, MRef1, ?LINE),
+                         PostA = mrdb:read(R, a); % now, P1's write should leak through here
+                     {0, 1} ->                    % This is the first (outer) retry
+                         go_ahead_other(0, P2),   % Let P2 write
+                         go_ahead_other(0, P2),   % Let P2 commit, then await DOWN (normal)
+                         await_other_down(P2, MRef2, ?LINE),
+                         PostA = mrdb:read(R, a), % now we should see writes from both P1
+                         PostB = mrdb:read(R, b); % ... and P2
+                     {1, 1} ->
+                         PostA = mrdb:read(R, a),
+                         PostB = mrdb:read(R, b),
+                         ok
+                 end,
+                 mrdb:insert(R, {R, a, 18}),
+                 mrdb:insert(R, {R, b, 18})
+         end,
+    Do0 = get_dict(),
+    mrdb:activity({tx, #{no_snapshot => true, retries => {1,1}}}, rdb, F2),
+    check_stats(rdb),
+    dictionary_unchanged(Do0),
+    [{R, a, 18}] = mrdb:read(R, a),
+    [{R, b, 18}] = mrdb:read(R, b),
+    #{inner_retries := Ri1, outer_retries := Ro1} = check_stats(rdb),
+    {restarts, {1, 1}} = {restarts, {Ri1 - Ri0, Ro1 - Ro0}},
     delete_tabs(Created),
     ok.
 
@@ -383,7 +472,7 @@ mrdb_two_procs_tx_restart_(Config) ->
 %% attempt, and ignore the sync ops on retries.
 %%
 -define(IF_FIRST(N, Expr),
-        if N == 1 ->
+        if N == 0 ->
                 Expr;
            true ->
                 ok
@@ -413,8 +502,8 @@ mrdb_two_procs_snap(Config) ->
                  go_ahead_other(Att, POther),
                  ARes = mrdb:read(R, a),
                  ARes = case Att of
-                            1 -> Pre;
-                            2 -> [{R, a, 17}]
+                            0 -> Pre;
+                            _ -> [{R, a, 17}]
                         end,
                  await_other_down(POther, MRef, ?LINE),
                  PreB = mrdb:read(R, b),
@@ -434,7 +523,7 @@ mrdb_two_procs_snap(Config) ->
 %% We make sure that P2 commits before finishing the other two, and P3 and the 
 %% main thread sync, so as to maximize the contention for the retry lock.
 mrdb_three_procs(Config) ->
-    tr_ct:with_trace(fun mrdb_three_procs_/1, Config, light_tr_opts()).
+    tr_ct:with_trace(fun mrdb_three_procs_/1, Config, dbg_tr_opts()).
 
 mrdb_three_procs_(Config) ->
     R = ?FUNCTION_NAME,
@@ -452,7 +541,7 @@ mrdb_three_procs_(Config) ->
         spawn_opt(fun() ->
                           D0 = get_dict(),
                           do_when_p_allows(
-                            1, Parent, ?LINE,
+                            0, Parent, ?LINE,
                             fun() ->
                                     ok = mrdb:activity({tx,#{retries => 0}}, rdb, F1)
                             end),
@@ -488,8 +577,8 @@ mrdb_three_procs_(Config) ->
                        fun() ->
                                Att = get_attempt(),
                                ARes = case Att of
-                                          1 -> [A0];
-                                          2 -> [A1]
+                                          0 -> [A0];
+                                          _ -> [A1]
                                       end,
                                %% First, ensure that P2 tx is running
                                go_ahead_other(Att, P2),
@@ -519,6 +608,7 @@ tr_opts() ->
                   , {?MODULE, await_other_down, 3, x}
                   , {?MODULE, do_when_p_allows, 4, x}
                   , {?MODULE, allow_p, 3, x}
+                  , {?MODULE, check_stats, 1, x}
                   ]}.
 
 light_tr_opts() ->
@@ -527,6 +617,22 @@ light_tr_opts() ->
       tr_patterns(
         mrdb, [ {mrdb, insert, 2, x}
               , {mrdb, read, 2, x}
+              , {mrdb, activity, x} ], tr_opts())).
+
+dbg_tr_opts() ->
+    tr_flags(
+      {self(), [call, sos, p, 'receive']},
+      tr_patterns(
+        mrdb, [ {mrdb, insert, 2, x}
+              , {mrdb, read, 2, x}
+              , {mrdb, retry_activity, 3, x}
+              , {mrdb, try_f, 2, x}
+              , {mrdb, incr_attempt, 2, x}
+              , {mrdb, current_context, 0, x}
+              , {mrdb_mutex, do, 2, x}
+              , {mrdb_mutex_serializer, do, 2, x}
+              , {?MODULE, wait_for_other, 2, x}
+              , {?MODULE, go_ahead_other, 1, x}
               , {mrdb, activity, x} ], tr_opts())).
 
 tr_patterns(Mod, Ps, #{patterns := Pats} = Opts) ->
@@ -542,12 +648,13 @@ wait_for_other(Parent, L) ->
 wait_for_other(Att, Parent, L) ->
     wait_for_other(Att, Parent, 1000, L).
 
-wait_for_other(1, Parent, Timeout, L) ->
+wait_for_other(0, Parent, Timeout, L) ->
     MRef = monitor(process, Parent),
     Parent ! {self(), ready},
     receive
         {Parent, cont} ->
             demonitor(MRef),
+            Parent ! {self(), cont_ack},
             ok;
         {'DOWN', MRef, _, _, Reason} ->
             ct:log("Parent died, Reason = ~p", [Reason]),
@@ -586,7 +693,13 @@ go_ahead_other(Att, POther, Timeout) ->
 go_ahead_other_(POther, Timeout) ->
     receive
         {POther, ready} ->
-            POther ! {self(), cont}
+            POther ! {self(), cont},
+            receive
+                {POther, cont_ack} ->
+                    ok
+            after Timeout ->
+                    error(cont_ack_timeout)
+            end
     after Timeout ->
             error(go_ahead_timeout)
     end.
@@ -645,3 +758,8 @@ dictionary_unchanged(Old) ->
      , added   := [] } = #{ deleted => Old -- New
                           , added   => New -- Old },
     ok.
+
+check_stats(Alias) ->
+    Stats = mrdb_stats:get(Alias),
+    ct:log("Stats: ~p", [Stats]),
+    Stats.

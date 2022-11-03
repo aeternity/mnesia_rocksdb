@@ -407,12 +407,14 @@ try_load_admin_db(Alias, AliasOpts, #st{ backends = Bs
             %% We need to store the persistent ref explicitly here,
             %% since mnesia knows nothing of our admin table.
             AdminTab = {admin, Alias},
+            Stats = mrdb_stats:new(),
             CfI = update_cf_info(AdminTab, #{ status => open
                                             , name => AdminTab
                                             , vsn => ?VSN
                                             , encoding => {sext,{value,term}}
                                             , attr_pos => #{key => 1,
                                                             value => 2}
+                                            , stats => Stats
                                             , mountpoint => MP
                                             , properties =>
                                                 #{ attributes => [key, val]
