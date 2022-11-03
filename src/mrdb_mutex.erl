@@ -5,21 +5,23 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-%% We use a duplicate_bag ets table as a lock queue,
-%% relying on the characteristic that a lookup on a key (the resource name)
-%% returns the objects in the order in which they were inserted.
-%% We try to claim the lock by inserting our own pid under the Rrsc key, then
-%% checking which pid is at the head of the list. If it's our pid, we have the
-%% lock, and proceed with calling our fun, then delecting our table entry.
-%% If another pid is at the head of the list, we busy-wait on the table.
+%% We use a gen_server-based FIFO queue (one queue per alias) to manage the
+%% critical section.
 %%
-%% Releasing the resource is done by deleting the resource. If we just decrement,
-%% we will end up with lingering unlocked resources, so we might as well delete.
-%% Either operation is atomic, and the claim op creates the object if it's missing.
-
-%% Another, perhaps cheaper, way of implementing a mutex would be to use a counter
-%% object, but we also care about avoiding starvation, and this way, we get a form
-%% of serialization of requests.
+%% Releasing the resource is done by notifying the server.
+%%
+%% Previous implementations tested:
+%% * A counter (in ets), incremented atomically first with 0, then 1. This lets
+%%   the caller know if the 'semaphore' was 1 or zero before. If it was already
+%%   1, busy-loop over the counter until it reads as a transition from 0 to 1.
+%%   This is a pretty simple implementation, but it lacks ordering, and appeared
+%%   to sometimes lead to starvation.
+%% * A duplicate_bag ets table: These are defined such that insertion order is
+%%   preserved. Thus, they can serve as a mutex with FIFO characteristics.
+%%   Unfortunately, performance plummeted when tested with > 25 concurrent
+%%   processes. While this is likely a very high number, given that we're talking
+%%   about contention in a system using optimistic concurrency, it's never good
+%%   if performance falls off a cliff.
 
 do(Rsrc, F) when is_function(F, 0) ->
     {ok, Ref} = mrdb_mutex_serializer:wait(Rsrc),
