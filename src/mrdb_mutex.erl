@@ -3,79 +3,107 @@
 
 -export([ do/2 ]).
 
--export([ ensure_tab/0 ]).
+-include_lib("eunit/include/eunit.hrl").
 
--define(LOCK_TAB, ?MODULE).
-
-%% We use a wrapping ets counter (default: 0) as a form of semaphor.
-%% The claim operation is done using an atomic list of two updates:
-%% first, incrementing with 0 - this returns the previous value
-%% then, incrementing with 1, but wrapping at 1, ensuring that we get 1 back,
-%% regardless of previous value. This means that if [0,1] is returned, the resource
-%% was not locked previously; if [1,1] is returned, it was.
+%% We use a gen_server-based FIFO queue (one queue per alias) to manage the
+%% critical section.
 %%
-%% Releasing the resource is done by deleting the resource. If we just decrement,
-%% we will end up with lingering unlocked resources, so we might as well delete.
-%% Either operation is atomic, and the claim op creates the object if it's missing.
+%% Releasing the resource is done by notifying the server.
+%%
+%% Previous implementations tested:
+%% * A counter (in ets), incremented atomically first with 0, then 1. This lets
+%%   the caller know if the 'semaphore' was 1 or zero before. If it was already
+%%   1, busy-loop over the counter until it reads as a transition from 0 to 1.
+%%   This is a pretty simple implementation, but it lacks ordering, and appeared
+%%   to sometimes lead to starvation.
+%% * A duplicate_bag ets table: These are defined such that insertion order is
+%%   preserved. Thus, they can serve as a mutex with FIFO characteristics.
+%%   Unfortunately, performance plummeted when tested with > 25 concurrent
+%%   processes. While this is likely a very high number, given that we're talking
+%%   about contention in a system using optimistic concurrency, it's never good
+%%   if performance falls off a cliff.
 
 do(Rsrc, F) when is_function(F, 0) ->
-    true = claim(Rsrc),
+    {ok, Ref} = mrdb_mutex_serializer:wait(Rsrc),
     try F()
     after
-        release(Rsrc)
+        mrdb_mutex_serializer:done(Rsrc, Ref)
     end.
 
-claim(Rsrc) ->
-    case claim_(Rsrc) of
-        true -> true;
-        false -> busy_wait(Rsrc, 1000)
+-ifdef(TEST).
+
+mutex_test_() ->
+    {foreach,
+     fun setup/0,
+     fun cleanup/1,
+     [
+      {"Check that all operations complete", fun swarm_do/0}
+     ]}.
+
+setup() ->
+    case whereis(mrdb_mutex_serializer) of
+        undefined ->
+            {ok, Pid} = mrdb_mutex_serializer:start_link(),
+            Pid;
+        Pid ->
+            Pid
     end.
 
-claim_(Rsrc) ->
-    case ets:update_counter(?LOCK_TAB, Rsrc, [{2, 0},
-                                              {2, 1, 1, 1}], {Rsrc, 0}) of
-        [0, 1] ->
-            %% have lock
-            true;
-        [1, 1] ->
-            false
-    end.
+cleanup(Pid) ->
+    unlink(Pid),
+    exit(Pid, kill).
 
-%% The busy-wait function makes use of the fact that we can read a timer to find out
-%% if it still has time remaining. This reduces the need for selective receive, looking
-%% for a timeout message. We yield, then retry the claim op. Yielding at least used to
-%% also be necessary for the `read_timer/1` value to refresh.
-%%
-busy_wait(Rsrc, Timeout) ->
-    Ref = erlang:send_after(Timeout, self(), {claim, Rsrc}),
-    do_wait(Rsrc, Ref).
-
-do_wait(Rsrc, Ref) ->
-    erlang:yield(),
-    case erlang:read_timer(Ref) of
-        false ->
-            erlang:cancel_timer(Ref),
-            error(lock_wait_timeout);
-        _ ->
-            case claim_(Rsrc) of
-                true ->
-                    erlang:cancel_timer(Ref),
-                    ok;
-                false ->
-                    do_wait(Rsrc, Ref)
-            end
-    end.
-
-release(Rsrc) ->
-    ets:delete(?LOCK_TAB, Rsrc),
+swarm_do() ->
+    Rsrc = ?LINE,
+    Pid = spawn(fun() -> collect([]) end),
+    L = lists:seq(1, 1000),
+    Evens = [X || X <- L, is_even(X)],
+    Pids = [spawn_monitor(fun() ->
+                                  send_even(Rsrc, N, Pid)
+                          end) || N <- lists:seq(1,1000)],
+    await_pids(Pids),
+    Results = fetch(Pid),
+    {incorrect_results, []} = {incorrect_results, Results -- Evens},
+    {missing_correct_results, []} = {missing_correct_results, Evens -- Results},
     ok.
 
-
-%% Called by the process holding the ets table.
-ensure_tab() ->
-    case ets:info(?LOCK_TAB, name) of
-        undefined ->
-            ets:new(?LOCK_TAB, [set, public, named_table, {write_concurrency, true}]);
-        _ ->
-            true
+collect(Acc) ->
+    receive
+        {_, result, N} ->
+            collect([N|Acc]);
+        {From, fetch} ->
+            From ! {fetch_reply, Acc},
+            done
     end.
+
+fetch(Pid) ->
+    Pid ! {self(), fetch},
+    receive
+        {fetch_reply, Result} ->
+            Result
+    end.
+
+is_even(N) ->
+    (N rem 2) =:= 0.
+
+await_pids([{_, MRef}|Pids]) ->
+    receive
+        {'DOWN', MRef, _, _, _} ->
+            await_pids(Pids)
+    after 10000 ->
+            error(timeout)
+    end;
+await_pids([]) ->
+    ok.
+
+send_even(Rsrc, N, Pid) ->
+    do(Rsrc, fun() ->
+                     case is_even(N) of
+                         true ->
+                             Pid ! {self(), result, N};
+                         false ->
+                             exit(not_even)
+                     end
+             end).
+
+-endif.

@@ -42,4 +42,5 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, [?CHILD(mnesia_rocksdb_params, worker)]} }.
+    {ok, { {one_for_one, 5, 10}, [ ?CHILD(mrdb_mutex_serializer, worker)
+                                 , ?CHILD(mnesia_rocksdb_params, worker)]} }.
