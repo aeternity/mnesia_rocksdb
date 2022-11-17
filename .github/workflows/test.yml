@@ -1,0 +1,38 @@
+name: Run CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+    name: OTP ${{matrix.otp}} / rebar3 ${{matrix.rebar3}}
+    strategy:
+      matrix:
+        otp: ['23.3.4.18', '24.3.4.6', '25.1.2']
+        rebar3: ['3.20.0']
+    steps:
+      - uses: actions/checkout@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{matrix.otp}}
+          rebar3-version: ${{matrix.rebar3}}
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v1.13
+        with:
+          cmake-version: latest
+      - name: Use cmake
+        run: cmake --version
+      - name: Compile
+        run: rebar3 compile
+      - name: Run tests
+        run: rebar3 do dialyzer, xref, eunit, ct
+
