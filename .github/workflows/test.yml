@@ -25,10 +25,13 @@ jobs:
         with:
           otp-version: ${{matrix.otp}}
           rebar3-version: ${{matrix.rebar3}}
-      - name: Setup cmake
-        uses: jwlawson/actions-setup-cmake@v1.13
+      - name: add cmake repo
+        uses: myci-actions/add-deb-repo@10
         with:
-          cmake-version: latest
+          repo: deb https://apt.kitware.com/ubuntu/ $(lsb_release -c | awk '{print $2}') main
+          repo-name: kitware
+          keys-asc: https://apt.kitware.com/keys/kitware-archive-latest.asc
+          install: cmake-data cmake-curses-gui
       - name: Use cmake
         run: cmake --version
       - name: Compile
