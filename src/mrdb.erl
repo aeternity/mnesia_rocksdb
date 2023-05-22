@@ -1546,8 +1546,9 @@ rdb_iterator(R) -> rdb_iterator(R, []).
 rdb_iterator(R, Opts) ->
     rdb_iterator_(R, read_opts(R, Opts)).
 
-rdb_iterator_(#{db_ref := DbRef, cf_handle := CfH, activity := #{type := tx, handle := TxH}}, ROpts) ->
-    rocksdb:transaction_iterator(DbRef, TxH, CfH, ROpts);
+rdb_iterator_(#{cf_handle := CfH, activity := #{type := tx, handle := TxH}}, ROpts) ->
+    %% Note: versions before 1.8.0 expected DbRef as first argument
+    rocksdb:transaction_iterator(TxH, CfH, ROpts);
 rdb_iterator_(#{db_ref := DbRef, cf_handle := CfH}, ROpts) ->
     rocksdb:iterator(DbRef, CfH, ROpts).
 
