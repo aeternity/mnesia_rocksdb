@@ -6,6 +6,9 @@
         , iterator_move/2
         , iterator/2
         , iterator_close/1
+        , fold/4
+        , rev_fold/4
+        , index_ref/2
         ]).
 
 -record(mrdb_ix_iter, { i    :: mrdb:iterator()
@@ -61,6 +64,41 @@ iterator(Tab, IxPos) ->
                                                        | {error, _}.
 iterator_move(#mrdb_ix_iter{type = set} = IxI, Dir) -> iterator_move_set(IxI, Dir);
 iterator_move(#mrdb_ix_iter{type = bag} = IxI, Dir) -> iterator_move_bag(IxI, Dir).
+
+-spec fold(mrdb:ref_or_tab(), mrdb:index_position(),
+           fun( (index_value(), object() | [], Acc) -> Acc ), Acc) -> Acc
+          when Acc :: any().
+%% Folds over the index table corresponding to Tab and IxPos.
+%% The fold fun is called with the index key and the corresponding object,
+%% or [] if there is no such object.
+fold(Tab, IxPos, FoldFun, Acc) when is_function(FoldFun, 3) ->
+    fold_(Tab, IxPos, first, next, FoldFun, Acc).
+
+-spec rev_fold(mrdb:ref_or_tab(), mrdb:index_position(),
+               fun( (index_value(), object() | [], Acc) -> Acc ), Acc) -> Acc
+              when Acc :: any().
+%% Like fold/4 above, but folds over the index in the reverse order.
+rev_fold(Tab, IxPos, FoldFun, Acc) when is_function(FoldFun, 3) ->
+    fold_(Tab, IxPos, last, prev, FoldFun, Acc).
+
+fold_(Tab, IxPos, Start, Dir, FoldFun, Acc) ->
+    with_iterator(
+      Tab, IxPos,
+      fun(I) ->
+              iter_fold(I, Start, Dir, FoldFun, Acc)
+      end).
+
+iter_fold(I, Start, Dir, Fun, Acc) ->
+    iter_fold_(iterator_move(I, Start), I, Dir, Fun, Acc).
+
+iter_fold_({ok, IxVal, Obj}, I, Dir, Fun, Acc) ->
+    iter_fold_(iterator_move(I, Dir), I, Dir, Fun, Fun(IxVal, Obj, Acc));
+iter_fold_({error, _}, _, _, _, Acc) ->
+    Acc.
+
+index_ref(Tab, Pos) ->
+    TRef = mrdb:ensure_ref(Tab),
+    ensure_index_ref(Pos, TRef).
 
 iterator_move_set(#mrdb_ix_iter{i = I, sub = Sub}, Dir) ->
     case mrdb:iterator_move(I, Dir) of

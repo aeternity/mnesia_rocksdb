@@ -33,6 +33,7 @@
         , read_info/2            %% (Alias, Tab)
         , read_info/4            %% (Alias, Tab, Key, Default)
         , write_info/4           %% (Alias, Tab, Key, Value)
+        , delete_info/3          %% (Alias, Tab, Key)
         , write_table_property/3 %% (Alias, Tab, Property)
         ]).
 
@@ -287,6 +288,14 @@ write_info_encv(Ref, Tab, K, V) ->
     maybe_write_standalone_info(Ref, K, V),
     mrdb:rdb_put(Ref, EncK, V, []).
 
+delete_info(Alias, Tab, K) ->
+    delete_info_(get_ref({admin, Alias}), Tab, K).
+
+delete_info_(Ref, Tab, K) ->
+    EncK = mnesia_rocksdb_lib:encode_key({info, Tab, K}, sext),
+    maybe_delete_standalone_info(Ref, K),
+    mrdb:rdb_delete(Ref, EncK, []).
+
 maybe_write_standalone_info(Ref, K, V) ->
     case Ref of
         #{type := standalone, vsn := 1, db_ref := DbRef} ->
@@ -294,6 +303,16 @@ maybe_write_standalone_info(Ref, K, V) ->
             Key = <<?INFO_TAG, EncK/binary>>,
             EncV = mnesia_rocksdb_lib:encode_val(V, term),
             rocksdb:put(DbRef, Key, EncV, []);
+        _ ->
+            ok
+    end.
+
+maybe_delete_standalone_info(Ref, K) ->
+    case Ref of
+        #{type := standalone, vsn := 1, db_ref := DbRef} ->
+            EncK = mnesia_rocksdb_lib:encode_key(K, sext),
+            Key = <<?INFO_TAG, EncK/binary>>,
+            rocksb:delete(DbRef, Key, []);
         _ ->
             ok
     end.
@@ -521,7 +540,7 @@ handle_req(Alias, {create_table, Name, Props}, Backend, St) ->
             case create_trec(Alias, Name, Props, Backend, St) of
                 {ok, NewCf} ->
                     St1 = update_cf(Alias, Name, NewCf, St),
-                    {reply, {ok, NewCf}, St1};
+                    {reply, {ok, NewCf}, maybe_update_main(Alias, Name, create, St1)};
                 {error, _} = Error ->
                     {reply, Error, St}
             end
@@ -637,8 +656,14 @@ maybe_update_main(Alias, {Main, index, I}, Op, St) ->
             case {Op, lists:member(I, Index)} of
                 {delete, true} ->
                     CfM1 = CfM#{properties => Props#{index => Index -- [I]}},
+                    delete_info(Alias, Main, {index_consistent, I}),
                     maybe_update_pt(Main, CfM1),
                     update_cf(Alias, Main, CfM1, St);
+                {create, _} ->
+                    %% Due to a previous bug, this marker might linger
+                    %% In any case, it mustn't be there for a newly created index
+                    delete_info(Alias, Main, {index_consistent, I}),
+                    St;
                 _ ->
                     St
             end;
@@ -648,6 +673,7 @@ maybe_update_main(Alias, {Main, index, I}, Op, St) ->
     end;
 maybe_update_main(_, _, _, St) ->
     St.
+
 
 %% The pt may not have been created yet. If so, don't do it here.
 maybe_update_pt(Name, Ref) ->
