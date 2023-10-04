@@ -312,7 +312,7 @@ maybe_delete_standalone_info(Ref, K) ->
         #{type := standalone, vsn := 1, db_ref := DbRef} ->
             EncK = mnesia_rocksdb_lib:encode_key(K, sext),
             Key = <<?INFO_TAG, EncK/binary>>,
-            rocksb:delete(DbRef, Key, []);
+            rocksdb:delete(DbRef, Key, []);
         _ ->
             ok
     end.
