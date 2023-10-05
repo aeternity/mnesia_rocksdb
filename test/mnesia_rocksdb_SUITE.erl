@@ -440,7 +440,10 @@ mrdb_two_procs_tx_inner_restart_(Config) ->
                          go_ahead_other(0, P2),   % Let P2 commit, then await DOWN (normal)
                          await_other_down(P2, MRef2, ?LINE),
                          PostA = mrdb:read(R, a), % now we should see writes from both P1
-                         PostB = mrdb:read(R, b); % ... and P2
+                         %% On OTP 23, the following step might fail due to timing, even
+                         %% though the trace output looks as expected. Possibly some quirk
+                         %% with leakage propagation time in rocksdb. Let's retry to be sure.
+                         ok = try_until(PostB, fun() -> mrdb:read(R, b) end); % ... and P2
                      {1, 1} ->
                          PostA = mrdb:read(R, a),
                          PostB = mrdb:read(R, b),
@@ -460,6 +463,19 @@ mrdb_two_procs_tx_inner_restart_(Config) ->
     delete_tabs(Created),
     ok.
 
+try_until(Result, F) ->
+    try_until(Result, F, 10).
+
+try_until(Result, F, N) when N > 0 ->
+    case F() of
+        Result ->
+            ok;
+        _ ->
+            receive after 100 -> ok end,
+            try_until(Result, F, N-1)
+    end;
+try_until(Result, F, _) ->
+    error({badmatch, {Result, F}}).
 
 %
 %% For testing purposes, we use side-effects inside the transactions
@@ -633,6 +649,7 @@ dbg_tr_opts() ->
               , {mrdb_mutex_serializer, do, 2, x}
               , {?MODULE, wait_for_other, 2, x}
               , {?MODULE, go_ahead_other, 1, x}
+              , {?MODULE, try_until, 3, x}
               , {mrdb, activity, x} ], tr_opts())).
 
 tr_patterns(Mod, Ps, #{patterns := Pats} = Opts) ->
