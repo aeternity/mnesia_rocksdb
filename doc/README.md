@@ -6,6 +6,8 @@ Copyright (c) 2013-21 Klarna AB
 
 __Authors:__ Ulf Wiger ([`ulf@wiger.net`](mailto:ulf@wiger.net)).
 
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/aeternity/mnesia_rocksdb/tree/master.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/aeternity/mnesia_rocksdb/tree/master)
+
 The Mnesia DBMS, part of Erlang/OTP, supports 'backend plugins', making
 it possible to utilize more capable key-value stores than the `dets`
 module (limited to 2 GB per table). Unfortunately, this support is
@@ -270,13 +272,11 @@ replaced by the new object.)
 <table width="100%" border="0" summary="list of modules">
 <tr><td><a href="mnesia_rocksdb.md" class="module">mnesia_rocksdb</a></td></tr>
 <tr><td><a href="mnesia_rocksdb_admin.md" class="module">mnesia_rocksdb_admin</a></td></tr>
-<tr><td><a href="mnesia_rocksdb_app.md" class="module">mnesia_rocksdb_app</a></td></tr>
 <tr><td><a href="mnesia_rocksdb_lib.md" class="module">mnesia_rocksdb_lib</a></td></tr>
-<tr><td><a href="mnesia_rocksdb_params.md" class="module">mnesia_rocksdb_params</a></td></tr>
 <tr><td><a href="mnesia_rocksdb_sup.md" class="module">mnesia_rocksdb_sup</a></td></tr>
 <tr><td><a href="mnesia_rocksdb_tuning.md" class="module">mnesia_rocksdb_tuning</a></td></tr>
 <tr><td><a href="mrdb.md" class="module">mrdb</a></td></tr>
 <tr><td><a href="mrdb_index.md" class="module">mrdb_index</a></td></tr>
-<tr><td><a href="mrdb_mutex.md" class="module">mrdb_mutex</a></td></tr>
-<tr><td><a href="mrdb_select.md" class="module">mrdb_select</a></td></tr></table>
+<tr><td><a href="mrdb_select.md" class="module">mrdb_select</a></td></tr>
+<tr><td><a href="mrdb_stats.md" class="module">mrdb_stats</a></td></tr></table>
 

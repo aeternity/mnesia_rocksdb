@@ -9,12 +9,18 @@
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#fold-5">fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-5">rdb_fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr></table>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#continuation_info-2">continuation_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#fold-5">fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-5">rdb_fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#select-4">select/4</a></td><td></td></tr></table>
 
 
 <a name="functions"></a>
 
 ## Function Details ##
+
+<a name="continuation_info-2"></a>
+
+### continuation_info/2 ###
+
+`continuation_info(Item, C) -> any()`
 
 <a name="fold-5"></a>
 

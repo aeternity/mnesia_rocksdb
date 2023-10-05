@@ -16,7 +16,7 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%----------------------------------------------------------------
-
+%% @hidden
 -module(mnesia_rocksdb_params).
 
 -behaviour(gen_server).

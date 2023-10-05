@@ -267,7 +267,7 @@ table_type() = set | ordered_set | bag
 
 ### handle_call/3 ###
 
-`handle_call(X1, From, St) -> any()`
+`handle_call(M, From, St) -> any()`
 
 <a name="handle_cast-2"></a>
 
@@ -359,7 +359,7 @@ where Opts are parameters for the supervised child:
 
 ### load_table/4 ###
 
-`load_table(Alias, Tab, LoadReason, Opts) -> any()`
+`load_table(Alias, Tab, LoadReason, Props) -> any()`
 
 <a name="lookup-3"></a>
 

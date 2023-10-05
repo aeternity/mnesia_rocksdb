@@ -6,6 +6,8 @@ Copyright (c) 2013-21 Klarna AB
 
 __Authors:__ Ulf Wiger ([`ulf@wiger.net`](mailto:ulf@wiger.net)).
 
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/aeternity/mnesia_rocksdb/tree/master.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/aeternity/mnesia_rocksdb/tree/master)
+
 The Mnesia DBMS, part of Erlang/OTP, supports 'backend plugins', making
 it possible to utilize more capable key-value stores than the `dets`
 module (limited to 2 GB per table). Unfortunately, this support is
@@ -16,21 +18,21 @@ is provided.
 ### <a name="Table_of_Contents">Table of Contents</a> ###
 
 
-1. [Usage](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Usage)
-1. [Prerequisites](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Prerequisites)
-1. [Getting started](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Getting_started)
-1. [Special features](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Special_features)
-1. [Customization](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Customization)
-1. [Handling of errors in write operations](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Handling_of_errors_in_write_operations)
-1. [Caveats](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Caveats)
+1. [Usage](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Usage)
+1. [Prerequisites](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Prerequisites)
+1. [Getting started](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Getting_started)
+1. [Special features](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Special_features)
+1. [Customization](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Customization)
+1. [Handling of errors in write operations](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Handling_of_errors_in_write_operations)
+1. [Caveats](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Caveats)
 
-1. [Mnesia backend plugins](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Mnesia_backend_plugins)
-1. [Background](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Background)
-1. [Design](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Design)
+1. [Mnesia backend plugins](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Mnesia_backend_plugins)
+1. [Background](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Background)
+1. [Design](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Design)
 
-1. [Mnesia index plugins](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Mnesia_index_plugins)
+1. [Mnesia index plugins](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Mnesia_index_plugins)
 
-1. [Rocksdb](https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/README.md#Rocksdb)
+1. [Rocksdb](https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/README.md#Rocksdb)
 
 
 
@@ -80,7 +82,7 @@ RocksDB supports a number of customization options. These can be specified
 by providing a `{Key, Value}` list named `rocksdb_opts` under `user_properties`,
 for example:
 
-```erlang
+```
 mnesia:create_table(foo, [{rocksdb_copies, [node()]},
                           ...
                           {user_properties,
@@ -93,7 +95,7 @@ for information on configuration parameters. Also see the section below on handl
 
 The default configuration for tables in `mnesia_rocksdb` is:
 
-```erlang
+```
 default_open_opts() ->
     [ {create_if_missing, true}
       , {cache_size,
@@ -195,7 +197,7 @@ our example. It returns a list of index terms.
 
 Given the following index plugin implementation:
 
-```erlang
+```
 -module(words).
 -export([words_f/3]).
 
@@ -212,7 +214,7 @@ words_(_) ->
 
 We can register the plugin and use it in table definitions:
 
-```erlang
+```
 Eshell V12.1.3  (abort with ^G)
 1> mnesia:start().
 ok
@@ -228,7 +230,7 @@ as an exported function along the node's code path.
 
 To see what happens when we insert an object, we can turn on call trace.
 
-```erlang
+```
 4> dbg:tracer().
 {ok,<0.108.0>}
 5> dbg:tp(words, x).
@@ -268,15 +270,13 @@ replaced by the new object.)
 
 
 <table width="100%" border="0" summary="list of modules">
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb.md" class="module">mnesia_rocksdb</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_admin.md" class="module">mnesia_rocksdb_admin</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_app.md" class="module">mnesia_rocksdb_app</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_lib.md" class="module">mnesia_rocksdb_lib</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_params.md" class="module">mnesia_rocksdb_params</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_sup.md" class="module">mnesia_rocksdb_sup</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mnesia_rocksdb_tuning.md" class="module">mnesia_rocksdb_tuning</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb.md" class="module">mrdb</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_index.md" class="module">mrdb_index</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_mutex.md" class="module">mrdb_mutex</a></td></tr>
-<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/g3553-refactor-plugin-migration-tmp-220318/doc/mrdb_select.md" class="module">mrdb_select</a></td></tr></table>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mnesia_rocksdb.md" class="module">mnesia_rocksdb</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mnesia_rocksdb_admin.md" class="module">mnesia_rocksdb_admin</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mnesia_rocksdb_lib.md" class="module">mnesia_rocksdb_lib</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mnesia_rocksdb_sup.md" class="module">mnesia_rocksdb_sup</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mnesia_rocksdb_tuning.md" class="module">mnesia_rocksdb_tuning</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mrdb.md" class="module">mrdb</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mrdb_index.md" class="module">mrdb_index</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mrdb_select.md" class="module">mrdb_select</a></td></tr>
+<tr><td><a href="https://github.com/aeternity/mnesia_rocksdb/blob/master/doc/mrdb_stats.md" class="module">mrdb_stats</a></td></tr></table>
 

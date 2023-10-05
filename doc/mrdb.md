@@ -26,8 +26,7 @@ follows:
   #{ name       := <Logical table name>
    , db_ref     := <Rocksdb database Ref>
    , cf_handle  := <Rocksdb column family handle>
-   , batch      := <Batch reference, if any>
-   , tx_handle  := <Rocksdb transaction handle, if any>
+   , activity   := Ongoing batch or transaction, if any (map())
    , attr_pos   := #{AttrName := Pos}
    , mode       := <Set to 'mnesia' for mnesia access flows>
    , properties := <Mnesia table props in map format>
@@ -47,6 +46,16 @@ not be replicated.
 <a name="types"></a>
 
 ## Data Types ##
+
+
+
+
+### <a name="type-activity">activity()</a> ###
+
+
+<pre><code>
+activity() = <a href="#type-tx_activity">tx_activity()</a> | <a href="#type-batch_activity">batch_activity()</a>
+</code></pre>
 
 
 
@@ -91,6 +100,16 @@ attr_pos() = #{atom() =&gt; <a href="#type-pos">pos()</a>}
 
 
 
+### <a name="type-batch_activity">batch_activity()</a> ###
+
+
+<pre><code>
+batch_activity() = #{type =&gt; batch, handle =&gt; <a href="#type-batch_handle">batch_handle()</a>}
+</code></pre>
+
+
+
+
 ### <a name="type-batch_handle">batch_handle()</a> ###
 
 
@@ -125,7 +144,7 @@ db_handle() = <a href="/home/uwiger/ae/mnesia_rocksdb/_build/default/lib/rocksdb
 
 
 <pre><code>
-db_ref() = #{name =&gt; <a href="#type-table">table()</a>, alias =&gt; atom(), vsn =&gt; non_neg_integer(), db_ref =&gt; <a href="#type-db_handle">db_handle()</a>, cf_handle =&gt; <a href="#type-cf_handle">cf_handle()</a>, semantics =&gt; <a href="#type-semantics">semantics()</a>, encoding =&gt; <a href="#type-encoding">encoding()</a>, attr_pos =&gt; <a href="#type-attr_pos">attr_pos()</a>, type =&gt; column_family | standalone, status =&gt; open | closed | pre_existing, properties =&gt; <a href="#type-properties">properties()</a>, mode =&gt; mnesia, ix_vals_f =&gt; fun((tuple()) -&gt; [any()]), batch =&gt; <a href="#type-batch_handle">batch_handle()</a>, tx_handle =&gt; <a href="#type-tx_handle">tx_handle()</a>, term() =&gt; term()}
+db_ref() = #{name =&gt; <a href="#type-table">table()</a>, alias =&gt; atom(), vsn =&gt; non_neg_integer(), db_ref =&gt; <a href="#type-db_handle">db_handle()</a>, cf_handle =&gt; <a href="#type-cf_handle">cf_handle()</a>, semantics =&gt; <a href="#type-semantics">semantics()</a>, encoding =&gt; <a href="#type-encoding">encoding()</a>, attr_pos =&gt; <a href="#type-attr_pos">attr_pos()</a>, type =&gt; column_family | standalone, status =&gt; open | closed | pre_existing, properties =&gt; <a href="#type-properties">properties()</a>, mode =&gt; mnesia, ix_vals_f =&gt; fun((tuple()) -&gt; [any()]), activity =&gt; <a href="#type-activity">activity()</a>, term() =&gt; term()}
 </code></pre>
 
 
@@ -166,6 +185,16 @@ index() = {<a href="#type-tab_name">tab_name()</a>, index, any()}
 
 <pre><code>
 index_position() = atom() | <a href="#type-pos">pos()</a>
+</code></pre>
+
+
+
+
+### <a name="type-inner">inner()</a> ###
+
+
+<pre><code>
+inner() = non_neg_integer()
 </code></pre>
 
 
@@ -251,6 +280,16 @@ obj() = tuple()
 
 
 
+### <a name="type-outer">outer()</a> ###
+
+
+<pre><code>
+outer() = non_neg_integer()
+</code></pre>
+
+
+
+
 ### <a name="type-pos">pos()</a> ###
 
 
@@ -305,7 +344,7 @@ retainer() = {<a href="#type-tab_name">tab_name()</a>, retainer, any()}
 
 
 <pre><code>
-retries() = non_neg_integer()
+retries() = <a href="#type-outer">outer()</a> | {<a href="#type-inner">inner()</a>, <a href="#type-outer">outer()</a>}
 </code></pre>
 
 
@@ -346,6 +385,16 @@ tab_name() = atom()
 
 <pre><code>
 table() = atom() | <a href="#type-admin_tab">admin_tab()</a> | <a href="#type-index">index()</a> | <a href="#type-retainer">retainer()</a>
+</code></pre>
+
+
+
+
+### <a name="type-tx_activity">tx_activity()</a> ###
+
+
+<pre><code>
+tx_activity() = #{type =&gt; tx, handle =&gt; <a href="#type-tx_handle">tx_handle()</a>, attempt =&gt; undefined | <a href="#type-retries">retries()</a>}
 </code></pre>
 
 
@@ -393,7 +442,7 @@ write_options() = [{sync, boolean()} | {disable_wal, boolean()} | {ignore_missin
 ## Function Index ##
 
 
-<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#abort-1">abort/1</a></td><td>Aborts an ongoing <a docgen-rel="seemfa" docgen-href="#activity/2" href="#activity-2"><code>activity/2</code></a></td></tr><tr><td valign="top"><a href="#activity-3">activity/3</a></td><td>Run an activity (similar to <a docgen-rel="seemfa" docgen-href="mnesia:mnesia#activity/2" href="http://www.erlang.org/doc/man/mnesia.html#activity-2"><code>//mnesia/mnesia:activity/2</code></a>).</td></tr><tr><td valign="top"><a href="#alias_of-1">alias_of/1</a></td><td>Returns the alias of a given table or table reference.</td></tr><tr><td valign="top"><a href="#as_batch-2">as_batch/2</a></td><td>Creates a <code>rocksdb</code> batch context and executes the fun <code>F</code> in it.</td></tr><tr><td valign="top"><a href="#as_batch-3">as_batch/3</a></td><td>as <a docgen-rel="seemfa" docgen-href="#as_batch/2" href="#as_batch-2"><code>as_batch/2</code></a>, but with the ability to pass <code>Opts</code> to <code>rocksdb:write_batch/2</code></td></tr><tr><td valign="top"><a href="#batch_write-2">batch_write/2</a></td><td></td></tr><tr><td valign="top"><a href="#batch_write-3">batch_write/3</a></td><td></td></tr><tr><td valign="top"><a href="#current_context-0">current_context/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-2">delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_object-2">delete_object/2</a></td><td></td></tr><tr><td valign="top"><a href="#delete_object-3">delete_object/3</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_ref-1">ensure_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_ref-2">ensure_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-1">first/1</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fold-3">fold/3</a></td><td></td></tr><tr><td valign="top"><a href="#fold-4">fold/4</a></td><td></td></tr><tr><td valign="top"><a href="#fold-5">fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#get_batch-1">get_batch/1</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-1">get_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#index_read-3">index_read/3</a></td><td></td></tr><tr><td valign="top"><a href="#insert-2">insert/2</a></td><td></td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#iterator-1">iterator/1</a></td><td></td></tr><tr><td valign="top"><a href="#iterator-2">iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#iterator_close-1">iterator_close/1</a></td><td></td></tr><tr><td valign="top"><a href="#iterator_move-2">iterator_move/2</a></td><td></td></tr><tr><td valign="top"><a href="#last-1">last/1</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-2">match_delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#new_tx-1">new_tx/1</a></td><td></td></tr><tr><td valign="top"><a href="#new_tx-2">new_tx/2</a></td><td></td></tr><tr><td valign="top"><a href="#next-2">next/2</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-2">prev/2</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_delete-2">rdb_delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_delete-3">rdb_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-4">rdb_fold/4</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-5">rdb_fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_get-2">rdb_get/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_get-3">rdb_get/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator-1">rdb_iterator/1</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator-2">rdb_iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator_move-2">rdb_iterator_move/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_put-3">rdb_put/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_put-4">rdb_put/4</a></td><td></td></tr><tr><td valign="top"><a href="#read-2">read/2</a></td><td></td></tr><tr><td valign="top"><a href="#read-3">read/3</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-1">read_info/1</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-2">read_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#release_snapshot-1">release_snapshot/1</a></td><td>release a snapshot created by <a docgen-rel="seemfa" docgen-href="#snapshot/1" href="#snapshot-1"><code>snapshot/1</code></a>.</td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-2">select/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#snapshot-1">snapshot/1</a></td><td>Create a snapshot of the database instance associated with the
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#abort-1">abort/1</a></td><td>Aborts an ongoing <a docgen-rel="seemfa" docgen-href="#activity/2" href="#activity-2"><code>activity/2</code></a></td></tr><tr><td valign="top"><a href="#activity-3">activity/3</a></td><td>Run an activity (similar to <a docgen-rel="seemfa" docgen-href="mnesia:mnesia#activity/2" href="http://www.erlang.org/doc/man/mnesia.html#activity-2"><code>//mnesia/mnesia:activity/2</code></a>).</td></tr><tr><td valign="top"><a href="#alias_of-1">alias_of/1</a></td><td>Returns the alias of a given table or table reference.</td></tr><tr><td valign="top"><a href="#as_batch-2">as_batch/2</a></td><td>Creates a <code>rocksdb</code> batch context and executes the fun <code>F</code> in it.</td></tr><tr><td valign="top"><a href="#as_batch-3">as_batch/3</a></td><td>as <a docgen-rel="seemfa" docgen-href="#as_batch/2" href="#as_batch-2"><code>as_batch/2</code></a>, but with the ability to pass <code>Opts</code> to <code>rocksdb:write_batch/2</code></td></tr><tr><td valign="top"><a href="#batch_write-2">batch_write/2</a></td><td></td></tr><tr><td valign="top"><a href="#batch_write-3">batch_write/3</a></td><td></td></tr><tr><td valign="top"><a href="#clear_table-1">clear_table/1</a></td><td></td></tr><tr><td valign="top"><a href="#current_context-0">current_context/0</a></td><td></td></tr><tr><td valign="top"><a href="#delete-2">delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#delete-3">delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#delete_object-2">delete_object/2</a></td><td></td></tr><tr><td valign="top"><a href="#delete_object-3">delete_object/3</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_ref-1">ensure_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#ensure_ref-2">ensure_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#first-1">first/1</a></td><td></td></tr><tr><td valign="top"><a href="#first-2">first/2</a></td><td></td></tr><tr><td valign="top"><a href="#fold-3">fold/3</a></td><td></td></tr><tr><td valign="top"><a href="#fold-4">fold/4</a></td><td></td></tr><tr><td valign="top"><a href="#fold-5">fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#get_batch-1">get_batch/1</a></td><td></td></tr><tr><td valign="top"><a href="#get_ref-1">get_ref/1</a></td><td></td></tr><tr><td valign="top"><a href="#index_read-3">index_read/3</a></td><td></td></tr><tr><td valign="top"><a href="#insert-2">insert/2</a></td><td></td></tr><tr><td valign="top"><a href="#insert-3">insert/3</a></td><td></td></tr><tr><td valign="top"><a href="#iterator-1">iterator/1</a></td><td></td></tr><tr><td valign="top"><a href="#iterator-2">iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#iterator_close-1">iterator_close/1</a></td><td></td></tr><tr><td valign="top"><a href="#iterator_move-2">iterator_move/2</a></td><td></td></tr><tr><td valign="top"><a href="#last-1">last/1</a></td><td></td></tr><tr><td valign="top"><a href="#last-2">last/2</a></td><td></td></tr><tr><td valign="top"><a href="#match_delete-2">match_delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#new_tx-1">new_tx/1</a></td><td></td></tr><tr><td valign="top"><a href="#new_tx-2">new_tx/2</a></td><td></td></tr><tr><td valign="top"><a href="#next-2">next/2</a></td><td></td></tr><tr><td valign="top"><a href="#next-3">next/3</a></td><td></td></tr><tr><td valign="top"><a href="#prev-2">prev/2</a></td><td></td></tr><tr><td valign="top"><a href="#prev-3">prev/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_delete-2">rdb_delete/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_delete-3">rdb_delete/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-4">rdb_fold/4</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_fold-5">rdb_fold/5</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_get-2">rdb_get/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_get-3">rdb_get/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator-1">rdb_iterator/1</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator-2">rdb_iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_iterator_move-2">rdb_iterator_move/2</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_put-3">rdb_put/3</a></td><td></td></tr><tr><td valign="top"><a href="#rdb_put-4">rdb_put/4</a></td><td></td></tr><tr><td valign="top"><a href="#read-2">read/2</a></td><td></td></tr><tr><td valign="top"><a href="#read-3">read/3</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-1">read_info/1</a></td><td></td></tr><tr><td valign="top"><a href="#read_info-2">read_info/2</a></td><td></td></tr><tr><td valign="top"><a href="#release_snapshot-1">release_snapshot/1</a></td><td>release a snapshot created by <a docgen-rel="seemfa" docgen-href="#snapshot/1" href="#snapshot-1"><code>snapshot/1</code></a>.</td></tr><tr><td valign="top"><a href="#select-1">select/1</a></td><td></td></tr><tr><td valign="top"><a href="#select-2">select/2</a></td><td></td></tr><tr><td valign="top"><a href="#select-3">select/3</a></td><td></td></tr><tr><td valign="top"><a href="#snapshot-1">snapshot/1</a></td><td>Create a snapshot of the database instance associated with the
 table reference, table name or alias.</td></tr><tr><td valign="top"><a href="#tx_commit-1">tx_commit/1</a></td><td></td></tr><tr><td valign="top"><a href="#tx_ref-2">tx_ref/2</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-3">update_counter/3</a></td><td></td></tr><tr><td valign="top"><a href="#update_counter-4">update_counter/4</a></td><td></td></tr><tr><td valign="top"><a href="#with_iterator-2">with_iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#with_iterator-3">with_iterator/3</a></td><td></td></tr><tr><td valign="top"><a href="#with_rdb_iterator-2">with_rdb_iterator/2</a></td><td></td></tr><tr><td valign="top"><a href="#with_rdb_iterator-3">with_rdb_iterator/3</a></td><td></td></tr><tr><td valign="top"><a href="#write_info-3">write_info/3</a></td><td></td></tr></table>
 
 
@@ -435,6 +484,14 @@ A transaction will be retried if it detects that the commit set conflicts with r
 A mutex is used to ensure that only one of potentially conflicting `mrdb` transactions is run at a time.
 The re-run transaction may still fail, if new transactions, or non-transaction writes interfere with
 the commit set. It will then be re-run again, until the retry count is exhausted.
+
+For finer-grained retries, it's possible to set `retries => {Inner, Outer}`. Setting the retries to a
+single number, `Retries`, is analogous to `{0, Retries}`. Each outer retry requests a`mutex lock' by
+waiting in a FIFO queue. Once it receives the lock, it will try the activity once + as many retries
+as specified by `Inner`. If these fail, the activity again goes to the FIFO queue (ending up last
+in line) if there are outer retries remaining. When all retries are exhaused, the activity aborts
+with `retry_limit`. Note that transactions, being optimistic, do not request a lock on the first
+attempt, but only on outer retries (the first retry is always an outer retry).
 
 Valid `TxOpts` are `#{no_snapshot => boolean(), retries => retries()}`.
 
@@ -496,6 +553,12 @@ as [`as_batch/2`](#as_batch-2), but with the ability to pass `Opts` to `rocksdb:
 
 `batch_write(Tab, L, Opts) -> any()`
 
+<a name="clear_table-1"></a>
+
+### clear_table/1 ###
+
+`clear_table(Tab) -> any()`
+
 <a name="current_context-0"></a>
 
 ### current_context/0 ###
@@ -537,7 +600,7 @@ delete(Tab::<a href="#type-ref_or_tab">ref_or_tab()</a>, Key::<a href="#type-key
 ### ensure_ref/1 ###
 
 <pre><code>
-ensure_ref(Ref::<a href="#type-ref_or_tab">ref_or_tab()</a>) -&gt; <a href="#type-db_ref">db_ref()</a>
+ensure_ref(R::<a href="#type-ref_or_tab">ref_or_tab()</a>) -&gt; <a href="#type-db_ref">db_ref()</a>
 </code></pre>
 <br />
 

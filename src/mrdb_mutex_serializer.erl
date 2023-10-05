@@ -1,3 +1,5 @@
+%% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
+%% @hidden
 -module(mrdb_mutex_serializer).
 
 -behavior(gen_server).
@@ -87,7 +89,7 @@ maybe_dispatch_one(Q) ->
         
 drop_or_filter(Q, MRef) ->
     case queue:peek(Q) of
-        {value, {_, MRef}} ->
+        {value, {_, _MRef}} ->
             Q1 = queue:drop(Q),
             ok = maybe_dispatch_one(Q1),
             Q1;

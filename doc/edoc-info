@@ -1,6 +1,5 @@
 %% encoding: UTF-8
 {application,mnesia_rocksdb}.
-{modules,[mnesia_rocksdb,mnesia_rocksdb_admin,mnesia_rocksdb_app,
-          mnesia_rocksdb_lib,mnesia_rocksdb_params,mnesia_rocksdb_sup,
-          mnesia_rocksdb_tuning,mrdb,mrdb_index,mrdb_mutex,
-          mrdb_mutex_serializer,mrdb_select,mrdb_stats]}.
+{modules,[mnesia_rocksdb,mnesia_rocksdb_admin,mnesia_rocksdb_lib,
+          mnesia_rocksdb_sup,mnesia_rocksdb_tuning,mrdb,mrdb_index,
+          mrdb_select,mrdb_stats]}.

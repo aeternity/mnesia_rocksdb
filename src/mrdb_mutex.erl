@@ -1,4 +1,5 @@
 %% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
+%% @hidden
 -module(mrdb_mutex).
 
 -export([ do/2 ]).
