@@ -3,14 +3,35 @@ version: 2.1
 executors:
   aebuilder:
     docker:
+      - image: aeternity/builder:bionic-otp24
+        user: builder
+    environment:
+      ERLANG_ROCKSDB_BUILDOPTS: "-j2"
+  aebuilder23:
+    docker:
       - image: aeternity/builder:bionic-otp23
         user: builder
     environment:
       ERLANG_ROCKSDB_BUILDOPTS: "-j2"
 
 jobs:
-  build:
+  otp24:
     executor: aebuilder
     steps:
       - checkout
       - run: make test
+      - store_artifacts:
+          path: _build/test/logs
+  otp23:
+    executor: aebuilder23
+    steps:
+      - checkout
+      - run: make test
+      - store_artifacts:
+          path: _build/test/logs
+
+workflows:
+  build_and_test:
+    jobs:
+      - otp23
+      - otp24
