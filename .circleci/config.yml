@@ -15,7 +15,7 @@ executors:
       ERLANG_ROCKSDB_BUILDOPTS: "-j2"
 
 jobs:
-  - otp24
+  otp24:
       build:
         executor: aebuilder
         steps:
@@ -23,7 +23,7 @@ jobs:
           - run: make test
           - store_artifacts:
               path: _build/test/logs
-  - otp23
+  otp23:
       build:
         executor: aebuilder23
         steps:
@@ -31,3 +31,9 @@ jobs:
           - run: make test
           - store_artifacts:
               path: _build/test/logs
+
+workflows:
+  build_and_test:
+    jobs:
+      - otp23
+      - otp24
