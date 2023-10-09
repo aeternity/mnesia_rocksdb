@@ -2,28 +2,23 @@ version: 2.1
 
 executors:
   aebuilder:
+    parameters:
+      otp:
+        type: string
     docker:
-      - image: aeternity/builder:bionic-otp24
-        user: builder
-    environment:
-      ERLANG_ROCKSDB_BUILDOPTS: "-j2"
-  aebuilder23:
-    docker:
-      - image: aeternity/builder:bionic-otp23
+      - image: aeternity/builder:bionic-<< parameters.otp >>
         user: builder
     environment:
       ERLANG_ROCKSDB_BUILDOPTS: "-j2"
 
 jobs:
-  otp24:
-    executor: aebuilder
-    steps:
-      - checkout
-      - run: make test
-      - store_artifacts:
-          path: _build/test/logs
-  otp23:
-    executor: aebuilder23
+  build_and_test:
+    parameters:
+      otp:
+        type: string
+    executor:
+      name: aebuilder
+      otp: << parameters.otp >>
     steps:
       - checkout
       - run: make test
@@ -31,7 +26,9 @@ jobs:
           path: _build/test/logs
 
 workflows:
-  build_and_test:
+  commit:
     jobs:
-      - otp23
-      - otp24
+      - build_and_test:
+          matrix:
+            parameters:
+              otp: ["otp23", "otp24"]
