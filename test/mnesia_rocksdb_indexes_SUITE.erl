@@ -33,6 +33,7 @@
 -export([
           index_plugin_mgmt/1
         , add_indexes/1
+        , delete_indexes/1
         , create_bag_index/1
         , create_ordered_index/1
         , test_1_ram_copies/1
@@ -94,6 +95,7 @@ groups() ->
                          , create_ordered_index
                          , index_plugin_mgmt
                          , add_indexes
+                         , delete_indexes
                          ]}
     , {access, [sequence], [
                              test_1_ram_copies
@@ -238,6 +240,25 @@ add_indexes(_Config) ->
     {atomic, ok} = mnesia:create_table(T, [{rdb, [node()]}, {attributes, [k, a, b, c]}]),
     {atomic, ok} = mnesia:add_table_index(T, a),
     ok.
+
+delete_indexes(_Config) ->
+    T = ?TAB(t1),
+    {atomic, ok} = mnesia:create_table(T, [{rdb, [node()]}, {attributes, [k, a, b]}]),
+    ok = mrdb:insert(T, {T, a, 1, 1}),
+    ok = mrdb:insert(T, {T, b, 1, 2}),
+    {atomic, ok} = mnesia:add_table_index(T, a),
+    [{1, {T,a,1,1}}, {1, {T,b,1,2}}] =
+        mrdb_index:rev_fold(T, a, fun ix_fold_acc/3, []),
+    {atomic, ok} = mnesia:del_table_index(T, a),
+    ok = mrdb:delete(T, b),
+    ok = mrdb:insert(T, {T, c, 2, 3}),
+    {atomic, ok} = mnesia:add_table_index(T, a),
+    [{1, {T,a,1,1}}, {2, {T,c,2,3}}] =
+        mrdb_index:rev_fold(T, a, fun ix_fold_acc/3, []),
+    ok.
+
+ix_fold_acc(K, V, Acc) ->
+    [{K, V} | Acc].
 
 index_plugin_mgmt(_Config) ->
     {aborted,_} = mnesia:create_table(x, [{index,[{unknown}]}]),
