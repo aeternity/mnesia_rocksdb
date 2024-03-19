@@ -6,10 +6,12 @@ executors:
       otp:
         type: string
     docker:
-      - image: aeternity/builder:bionic-<< parameters.otp >>
+      - image: aeternity/builder:focal-<< parameters.otp >>
         user: builder
     environment:
       ERLANG_ROCKSDB_BUILDOPTS: "-j2"
+      ERLANG_ROCKSDB_OPTS: "-DWITH_SYSTEM_ROCKSDB=ON -DWITH_SNAPPY=ON -DWITH_LZ4=ON -DWITH_BZ2=ON -DWITH_ZSTD=ON"
+
 
 jobs:
   build_and_test:
@@ -31,4 +33,4 @@ workflows:
       - build_and_test:
           matrix:
             parameters:
-              otp: ["otp23", "otp24"]
+              otp: ["otp24", "otp25", "otp26"]
