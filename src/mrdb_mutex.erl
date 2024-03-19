@@ -3,7 +3,9 @@
 
 -export([ do/2 ]).
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %% We use a gen_server-based FIFO queue (one queue per alias) to manage the
 %% critical section.
