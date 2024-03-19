@@ -11,9 +11,9 @@
         , index_ref/2
         ]).
 
--record(mrdb_ix_iter, { i    :: mrdb:iterator()
+-record(mrdb_ix_iter, { i    :: mrdb:mrdb_iterator()
                       , type = set :: set | bag
-                      , sub  :: mrdb:ref() | pid()
+                      , sub  :: pid() | mrdb:db_ref()
                       }).
 
 -type ix_iterator() :: #mrdb_ix_iter{}.
@@ -22,7 +22,7 @@
 
 -type object() :: tuple().
 
--record(subst, { i :: mrdb:iterator()
+-record(subst, { i :: mrdb:mrdb_iterator()
                , vals_f
                , cur
                , mref }).
@@ -121,6 +121,7 @@ iterator_move_bag(#mrdb_ix_iter{i = I, sub = Sub}, Dir) ->
             Other
     end.
 
+-spec opt_read(mrdb:ref_or_tab(), Key :: any()) -> any().
 opt_read(R, Key) ->
     case mrdb:read(R, Key, []) of
         [Obj] ->

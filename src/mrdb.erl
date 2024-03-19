@@ -250,7 +250,7 @@ release_snapshot(SHandle) ->
 %% <li> `{tx, TxOpts}' - A `rocksdb' transaction with sligth modifications</li>
 %% <li> `batch' - A `rocksdb' batch operation</li>
 %% </ul>
-%% 
+%%
 %% By default, transactions are combined with a snapshot with 1 retry.
 %% The snapshot ensures that writes from concurrent transactions don't leak into the transaction context.
 %% A transaction will be retried if it detects that the commit set conflicts with recent changes.
@@ -320,7 +320,7 @@ incr_attempt({I,O}, {Ri,Ro}) when is_integer(I), is_integer(O),
     end;
 incr_attempt(_, _) ->
     error.
-                    
+
 retry_activity(F, Alias, #{activity := #{ type := Type
                                         , attempt := A
                                         , retries := R} = Act} = Ctxt) ->
@@ -532,7 +532,7 @@ rdb_transaction(DbRef, Opts) ->
     rocksdb:transaction(DbRef, Opts).
 
 rdb_transaction_commit_and_pop(H) ->
-    try rdb_transaction_commit(H) 
+    try rdb_transaction_commit(H)
     after
         pop_ctxt()
     end.
@@ -559,6 +559,7 @@ rdb_release_batch(H) ->
     rocksdb:release_batch(H).
 
 %% @doc Aborts an ongoing {@link activity/2}
+-spec abort(_) -> no_return().
 abort(Reason) ->
     case mnesia_compatible_aborts() of
 	true ->
@@ -846,7 +847,7 @@ update_index_do_bag(Ixs, Name, R, Key, Obj, Opts) ->
                     not_found
             end
     end.
-    
+
 update_index_do([{_Pos,ordered} = Ix|Ixs], Name, R, Key, Obj, Rest, Opts) ->
     Tab = {Name, index, Ix},
     #{ix_vals_f := IxValsF} = IRef = ensure_ref(Tab, R),
@@ -1018,7 +1019,7 @@ alias_of(Tab) ->
 %% and when releasing, all batches are released. This will not ensure
 %% atomicity, but there is no way in rocksdb to achieve atomicity
 %% across db instances. At least, data should end up where you expect.
-%% 
+%%
 %% @end
 -spec as_batch(ref_or_tab(), fun( (db_ref()) -> Res )) -> Res.
 as_batch(Tab, F) ->
@@ -1321,7 +1322,7 @@ rdb_fold(Tab, Fun, Acc, Prefix, Limit) when is_function(Fun, 3)
     true = valid_limit(Limit),
     mrdb_select:rdb_fold(ensure_ref(Tab), Fun, Acc, Prefix, Limit).
 
-valid_limit(L) -> 
+valid_limit(L) ->
     case L of
         infinity ->
             true;
@@ -1559,11 +1560,11 @@ rdb_merge_(#{db_ref := DbRef, cf_handle := CfH}, K, Op, WOpts) ->
     rocksdb:merge(DbRef, CfH, K, Op, WOpts).
 
 write_opts(#{write_opts := Os}, Opts) -> Os ++ Opts;
-write_opts(_, Opts) -> 
+write_opts(_, Opts) ->
     Opts.
 
 read_opts(#{read_opts := Os}, Opts) -> Os ++ Opts;
-read_opts(_, Opts) -> 
+read_opts(_, Opts) ->
     Opts.
 
 -define(EOT, '$end_of_table').
