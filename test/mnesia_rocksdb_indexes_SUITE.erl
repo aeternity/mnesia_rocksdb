@@ -41,10 +41,12 @@
         , fail_1_disc_only/1
         , plugin_ram_copies1/1
         , plugin_ram_copies2/1
+        , plugin_ram_copies3/1
         , plugin_disc_copies/1
         , fail_plugin_disc_only/1
         , plugin_disc_copies_bag/1
         , plugin_rdb_ordered/1
+        , plugin_rdb_none/1
         , index_iterator/1
         ]).
 
@@ -74,10 +76,12 @@ run(Config) ->
                     {pfx},mnesia_rocksdb, ix_prefixes),
     test_index_plugin(cfg([pr1, ram_copies, ordered], Config)),
     test_index_plugin(cfg([pr2, ram_copies, bag], Config)),
+    test_index_plugin(cfg([pr3, ram_copies, none], Config)),
     test_index_plugin(cfg([pd1, disc_copies, ordered], Config)),
     fail(test_index_plugin, [cfg([pd2, disc_only_copies, ordered], Config)]),
     test_index_plugin(cfg([pd2, disc_copies, bag], Config)),
     test_index_plugin(cfg([pl2, rdb, ordered], Config)),
+    test_index_plugin(cfg([pl3, rdb, none], Config)),
     index_plugin_mgmt(Config),
     ok.
 
@@ -106,10 +110,12 @@ groups() ->
     , {plugin, [sequence], [
                              plugin_ram_copies1
                            , plugin_ram_copies2
+                           , plugin_ram_copies3
                            , plugin_disc_copies
                            , fail_plugin_disc_only
                            , plugin_disc_copies_bag
                            , plugin_rdb_ordered
+                           , plugin_rdb_none
                            ]}
     ].
 
@@ -179,10 +185,13 @@ fail_1_disc_only(  _Cfg) -> fail(test, [1, disc_only_copies, do1]).
 
 plugin_ram_copies1(Cfg) -> test_index_plugin(cfg([pr1, ram_copies, ordered], Cfg)).
 plugin_ram_copies2(Cfg) -> test_index_plugin(cfg([pr2, ram_copies, bag], Cfg)).
+plugin_ram_copies3(Cfg) -> test_index_plugin(cfg([pr3, ram_copies, none], Cfg)).
 plugin_disc_copies(Cfg) -> test_index_plugin(cfg([pd1, disc_copies, ordered], Cfg)).
 fail_plugin_disc_only(Cfg) -> fail(test_index_plugin, [cfg([pd2, disc_only_copies, ordered], Cfg)]).
 plugin_disc_copies_bag(Cfg) -> test_index_plugin(cfg([pd2, disc_copies, bag], Cfg)).
 plugin_rdb_ordered(Cfg) -> test_index_plugin(cfg([pl2, rdb, ordered], Cfg)).
+
+plugin_rdb_none(Cfg) -> test_index_plugin(cfg([pl3, rdb, none], Cfg)).
 
 test(N, Type, T) ->
     {atomic, ok} = mnesia:create_table(T, [{Type,[node()]},
@@ -206,7 +215,7 @@ add_del_indexes() ->
 test_index_plugin(Config) ->
     #{tab := Tab, type := Type, ixtype := IxType} = cfg(Config),
     {atomic, ok} = mnesia:create_table(Tab, [{Type, [node()]},
-                                             {index, [{{pfx}, IxType}]}]),
+                                             {index, [ixtype(IxType)]}]),
     mnesia:dirty_write({Tab, "foobar", "sentence"}),
     mnesia:dirty_write({Tab, "yellow", "sensor"}),
     mnesia:dirty_write({Tab, "truth", "white"}),
@@ -218,12 +227,26 @@ test_index_plugin(Config) ->
             Res2 = lists:sort(mnesia:dirty_index_read(Tab,<<"whi">>, {pfx})),
             [{Tab,"foobar","sentence"}] = mnesia:dirty_index_read(
                                             Tab, <<"foo">>, {pfx});
-       IxType == ordered ->
+       IxType == ordered; IxType == none ->
             Res1 = lists:sort(mnesia:dirty_index_read(Tab,<<"sen">>, {pfx})),
             Res2 = lists:sort(mnesia:dirty_index_read(Tab,<<"whi">>, {pfx})),
             [{Tab,"foobar","sentence"}] = mnesia:dirty_index_read(
                                             Tab, <<"foo">>, {pfx})
+    end,
+    if Type == rdb ->
+            Res1 = lists:sort(mrdb:index_read(Tab,<<"sen">>, {pfx})),
+            Res2 = lists:sort(mrdb:index_read(Tab,<<"whi">>, {pfx})),
+            [{Tab,"foobar","sentence"}] = mrdb:index_read(
+                                            Tab, <<"foo">>, {pfx});
+       true ->
+            ok
     end.
+
+ixtype(T) when T==bag;
+               T==ordered ->
+    {{pfx}, T};
+ixtype(none) ->
+    {pfx}.
 
 create_bag_index(_Config) ->
     {aborted, {combine_error, _, _}} =
