@@ -938,7 +938,7 @@ index_read_(#{name := Main, semantics := Sem} = Ref, Val, Ix) ->
             _ when is_atom(Ix) ->
                 {attr_pos(Ix, Ref), ordered};
             {_} ->
-                Ix;
+                {Ix, ordered};
             _ when is_integer(Ix) ->
                 {Ix, ordered}
         end,
