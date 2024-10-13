@@ -1,8 +1,8 @@
 {"1.2.0",
 [{<<"hut">>,{pkg,<<"hut">>,<<"1.4.0">>},0},
  {<<"rocksdb">>,
-  {git,"https://github.com/aeternity/erlang-rocksdb.git",
-       {ref,"79bab7c6b693bf7016490c28987d0b12a6b0dae9"}},
+  {git,"https://github.com/emqx/erlang-rocksdb.git",
+       {ref,"d695c6ee9dd27bfe492ed4e24c72ad20ab0d770b"}},
   0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.8.0">>},0}]}.
 [
