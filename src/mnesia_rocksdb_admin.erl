@@ -93,6 +93,9 @@
 
 -define(PT_KEY, {mnesia_rocksdb, meta}).
 
+-define(cf_opts_allowed, rdb_type_extractor:extract(rocksdb, cf_options)).
+-define(open_opts_allowed, rdb_type_extractor:extract(rocksdb, db_options)).
+
 -spec ensure_started() -> ok.
 ensure_started() ->
     case whereis(?MODULE) of
@@ -867,7 +870,7 @@ rpt(Rpt, Fmt, Args) ->
     rpt(Rpt, erlang:system_time(millisecond), Fmt, Args).
 
 rpt(undefined, _, _, _) -> ok;
-rpt(#{to := Rpt} = R, Time, Fmt, Args) -> 
+rpt(#{to := Rpt} = R, Time, Fmt, Args) ->
     Rpt ! {mnesia_rocksdb, report, R#{time => Time, fmt => Fmt, args => Args}},
     ok.
 
@@ -969,7 +972,7 @@ set_count(Count, R) when is_map(R) ->
 
 chunk_size(_) ->
     300.
- 
+
 maybe_write_user_props(#{name := T, properties := #{user_properties := UPMap}}) ->
     %% The UP map is #{Key => Prop}, where element(1, Prop) == Key
     UPs = maps:values(UPMap),
@@ -1312,7 +1315,7 @@ user_property(_, _, Default) ->
 tname(#{name := Name}) -> Name.
 
 get_encoding(1, _) -> {sext, {object, term}};
-get_encoding(?VSN, TRec) -> 
+get_encoding(?VSN, TRec) ->
     case user_property(mrdb_encoding, TRec, undefined) of
         undefined ->
             default_encoding(TRec);
@@ -1487,12 +1490,15 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
     case filelib:is_dir(MP) of
         false when CreateIfMissing ->
             %% not yet created
-            CFs = cfs(CFs0),
+            CFs = cfs(CFs0, Opts),
             file:make_dir(MP),
-            OpenOpts = [ {create_if_missing, true}
+            OpenOpts = filter_opts([{create_if_missing, true}
                        , {create_missing_column_families, true}
                        , {merge_operator, erlang_merge_operator}
-                       | Opts ],
+                       | Opts ], ?open_opts_allowed),
+            log_invalid_opts(Opts),
+            ?log(info, "open_db_ opts: ~p", [OpenOpts]),
+            ?log(info, "mnesia_rocksdb_lib:open_rocksdb(~p)", [CFs]),
             OpenRes = mnesia_rocksdb_lib:open_rocksdb(MP, OpenOpts, CFs),
             map_cfs(OpenRes, CFs, Alias, Acc0);
         false ->
@@ -1503,6 +1509,19 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
             CFs1 = [{CF,[]} || CF <- CFs], %% TODO: this really needs more checking
             map_cfs(rocksdb_open(MP, Opts, CFs1), CFs1, Alias, Acc0)
     end.
+
+log_invalid_opts(Opts) ->
+    Combined = ?open_opts_allowed ++ ?cf_opts_allowed,
+    case lists:filter(fun({Key, _Value}) -> lists:member(Key, Combined) == false end, Opts) of
+        [] ->
+            ok;
+        NonEmptyList ->
+            ?log(warning, "The following options will be ingored as they are not supported in rocksdb:options(): ~p", [NonEmptyList])
+    end.
+
+
+filter_opts(Opts, Allowed) ->
+    lists:filter(fun({Key, _Value}) -> lists:member(Key, Allowed) end, Opts).
 
 rocksdb_open(MP, Opts, CFs) ->
     %% rocksdb:open(MP, Opts, CFs),
@@ -1525,18 +1544,18 @@ remove_admin_db(Alias, #st{backends = Bs} = St) ->
             St
     end.
 
-%% TODO: Support user provision of cf-specific options
-cfs(CFs) ->
-    [{"default", cfopts()}] ++ lists:flatmap(fun admin_cfs/1, CFs).
+cfs(CFs, Opts) ->
+    Combined = cfopts() ++ filter_opts(Opts, ?cf_opts_allowed),
+    [{"default", Combined}] ++ lists:flatmap(fun(Tab) -> admin_cfs(Tab, Combined) end, CFs).
 
 cfopts() ->
     [{merge_operator, erlang_merge_operator}].
 
-admin_cfs(Tab) when is_atom(Tab) -> [ {tab_to_cf_name(Tab), cfopts()} ];
-admin_cfs({_, _, _} = T)         -> [ {tab_to_cf_name(T), cfopts()} ];
-admin_cfs({admin, _Alias} = A)   -> [ {tab_to_cf_name(A), cfopts()} ];
-admin_cfs({ext, CF})             -> [ {CF, cfopts()} ];
-admin_cfs({info, _} = I)         -> [ {tab_to_cf_name(I), cfopts()} ].
+admin_cfs(Tab, CFOpts) when is_atom(Tab) -> [ {tab_to_cf_name(Tab), CFOpts} ];
+admin_cfs({_, _, _} = T, CFOpts)         -> [ {tab_to_cf_name(T), CFOpts} ];
+admin_cfs({admin, _Alias} = A, CFOpts)   -> [ {tab_to_cf_name(A), CFOpts} ];
+admin_cfs({ext, CF}, CFOpts)             -> [ {CF, CFOpts} ];
+admin_cfs({info, _} = I, CFOpts)         -> [ {tab_to_cf_name(I), CFOpts} ].
 
 
 map_cfs({ok, Ref, CfHandles}, CFs, Alias, Acc) ->
