@@ -1,6 +1,8 @@
 %% -*- mode: erlang; erlang-indent-level: 4; indent-tabs-mode: nil -*-
 -module(mnesia_rocksdb_admin).
 
+-compile({parse_transform, ct_expand}).
+
 -behaviour(gen_server).
 
 -export([ ensure_started/0
@@ -92,9 +94,6 @@
                             | {stop, reason(), st()}.
 
 -define(PT_KEY, {mnesia_rocksdb, meta}).
-
--define(cf_opts_allowed, rdb_type_extractor:extract(rocksdb, cf_options)).
--define(open_opts_allowed, rdb_type_extractor:extract(rocksdb, db_options)).
 
 -spec ensure_started() -> ok.
 ensure_started() ->
@@ -1499,7 +1498,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
                     {merge_operator, erlang_merge_operator}
                 ],
                 Opts,
-                ?open_opts_allowed
+                open_opts_allowed()
             ),
             log_invalid_opts(Opts),
             OpenRes = mnesia_rocksdb_lib:open_rocksdb(MP, OpenOpts, CFs),
@@ -1514,7 +1513,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
     end.
 
 log_invalid_opts(Opts) ->
-    Combined = ?open_opts_allowed ++ ?cf_opts_allowed,
+    Combined = open_opts_allowed() ++ cf_opts_allowed(),
     case lists:filter(fun({Key, _Value}) -> lists:member(Key, Combined) == false end, Opts) of
         [] ->
             ok;
@@ -1561,7 +1560,7 @@ cfs(CFs, Opts) ->
     [{"default", CfOpts}] ++ lists:flatmap(fun(Tab) -> admin_cfs(Tab, CfOpts) end, CFs).
 
 cfopts(Opts) ->
-    filter_opts([{merge_operator, erlang_merge_operator}], Opts, ?cf_opts_allowed).
+    filter_opts([{merge_operator, erlang_merge_operator}], Opts, cf_opts_allowed()).
 
 admin_cfs(Tab, CFOpts) when is_atom(Tab) -> [ {tab_to_cf_name(Tab), CFOpts} ];
 admin_cfs({_, _, _} = T, CFOpts)         -> [ {tab_to_cf_name(T), CFOpts} ];
@@ -1686,3 +1685,6 @@ destroy_db(MPd, Opts, RetriesLeft, _) ->
 
 get_retries() -> 30.
 get_retry_delay() -> 10000.
+
+cf_opts_allowed() -> ct_expand:term(rdb_type_extractor:extract(rocksdb, cf_options)).
+open_opts_allowed() -> ct_expand:term(rdb_type_extractor:extract(rocksdb, db_options)).
