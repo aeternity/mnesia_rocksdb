@@ -1,6 +1,11 @@
 -module(rdb_type_extractor).
 
--export([extract/2]).
+-compile({parse_transform, ct_expand}).
+
+-export([cf_opts_allowed/0, open_opts_allowed/0, extract/2]).
+
+cf_opts_allowed() -> ct_expand:term(extract(rocksdb, cf_options)).
+open_opts_allowed() -> ct_expand:term(extract(rocksdb, db_options)).
 
 -spec extract(Module, TypeSpecTarget) -> Result when
     Module          :: module(),
