@@ -1,4 +1,5 @@
 -module(rdb_type_extractor).
+
 -compile({parse_transform, ct_expand}).
 
 -export([cf_opts_allowed/0, open_opts_allowed/0, extract/2]).
