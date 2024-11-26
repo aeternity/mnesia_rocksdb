@@ -15,7 +15,7 @@
         , get_ref/2                %% (Name, Default -> Ref | Default
         , request_ref/2            %% (Alias, Name) -> Ref
         , close_table/2
-	, clear_table/1
+        , clear_table/1
         ]).
 
 -export([ migrate_standalone/2
@@ -38,8 +38,8 @@
         ]).
 
 -export([ meta/0
-	, get_cached_env/2
-	, set_and_cache_env/2 ]).
+        , get_cached_env/2
+        , set_and_cache_env/2 ]).
 
 -include("mnesia_rocksdb.hrl").
 -include("mnesia_rocksdb_int.hrl").
@@ -81,7 +81,7 @@
              | {migrate, [{tabname(), map()}], rpt()}
              | {prep_close, table()}
              | {close_table, table()}
-	     | {clear_table, table() | cf() }.
+             | {clear_table, table() | cf() }.
 
 -type reason() :: any().
 -type reply()  :: any().
@@ -153,12 +153,12 @@ set_and_cache_env_(Key, Value) when is_atom(Key) ->
 
 maybe_initial_meta() ->
     case persistent_term:get(?PT_KEY, undefined) of
-	undefined ->
-	    M = check_application_defaults(#{}),
-	    persistent_term:put(?PT_KEY, M),
-	    M;
-	M when is_map(M) ->
-	    M
+       undefined ->
+           M = check_application_defaults(#{}),
+           persistent_term:put(?PT_KEY, M),
+           M;
+       M when is_map(M) ->
+           M
     end.
 
 meta() ->
@@ -211,10 +211,10 @@ close_table(Alias, Name) ->
 
 clear_table(#{alias := Alias, name := Name}) ->
     case Name of
-	{admin, _} -> mnesia:abort({bad_type, Name});
-	{_}        -> mnesia:abort({no_exists, Name});
-	_ ->
-	    call(Alias, {clear_table, Name})
+       {admin, _} -> mnesia:abort({bad_type, Name});
+       {_}        -> mnesia:abort({no_exists, Name});
+       _ ->
+           call(Alias, {clear_table, Name})
     end;
 clear_table(Name) ->
     clear_table(get_ref(Name)).
@@ -584,20 +584,20 @@ handle_req(Alias, {delete_table, Name}, Backend, St) ->
     end;
 handle_req(Alias, {clear_table, Name}, Backend, #st{} = St) ->
     case find_cf(Alias, Name, Backend, St) of
-	{ok, #{ status := open
-	      , type := column_family
-	      , db_ref := DbRef
-	      , cf_handle := CfH} = Cf} ->
-	    CfName = tab_to_cf_name(Name),
-	    ok = rocksdb:drop_column_family(DbRef, CfH),
-	    {ok, CfH1} = rocksdb:create_column_family(DbRef, CfName, cfopts()),
-	    ok = rocksdb:destroy_column_family(DbRef, CfH),
-	    Cf1 = Cf#{cf_handle := CfH1},
-	    St1 = update_cf(Alias, Name, Cf1, St),
-	    put_pt(Name, Cf1),
-	    {reply, ok, St1};
-	_ ->
-	    {reply, {error, not_found}, St}
+        {ok, #{ status := open
+              , type := column_family
+              , db_ref := DbRef
+              , cf_handle := CfH} = Cf} ->
+            CfName = tab_to_cf_name(Name),
+            ok = rocksdb:drop_column_family(DbRef, CfH),
+            {ok, CfH1} = rocksdb:create_column_family(DbRef, CfName, cfopts(rocksdb_opts_from_trec(Cf))),
+            ok = rocksdb:destroy_column_family(DbRef, CfH),
+            Cf1 = Cf#{cf_handle := CfH1},
+            St1 = update_cf(Alias, Name, Cf1, St),
+            put_pt(Name, Cf1),
+            {reply, ok, St1};
+        _ ->
+            {reply, {error, not_found}, St}
     end;
 handle_req(Alias, {get_ref, Name}, Backend, #st{} = St) ->
     case find_cf(Alias, Name, Backend, St) of
@@ -1339,7 +1339,7 @@ rocksdb_opts_from_trec(TRec) ->
 
 create_table_as_cf(Alias, Name, #{db_ref := DbRef} = R, St) ->
     CfName = tab_to_cf_name(Name),
-    case create_column_family(DbRef, CfName, cfopts(), R) of
+    case create_column_family(DbRef, CfName, cfopts(rocksdb_opts_from_trec(R)), R) of
         {ok, CfH} ->
             R1 = check_version_and_encoding(R#{ cf_handle => CfH
                                               , type => column_family }),
@@ -1492,13 +1492,16 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
             %% not yet created
             CFs = cfs(CFs0, Opts),
             file:make_dir(MP),
-            OpenOpts = filter_opts([{create_if_missing, true}
-                       , {create_missing_column_families, true}
-                       , {merge_operator, erlang_merge_operator}
-                       | Opts ], ?open_opts_allowed),
+            OpenOpts = filter_opts(
+                [
+                    {create_if_missing, true},
+                    {create_missing_column_families, true},
+                    {merge_operator, erlang_merge_operator}
+                ],
+                Opts,
+                ?open_opts_allowed
+            ),
             log_invalid_opts(Opts),
-            ?log(info, "open_db_ opts: ~p", [OpenOpts]),
-            ?log(info, "mnesia_rocksdb_lib:open_rocksdb(~p)", [CFs]),
             OpenRes = mnesia_rocksdb_lib:open_rocksdb(MP, OpenOpts, CFs),
             map_cfs(OpenRes, CFs, Alias, Acc0);
         false ->
@@ -1516,12 +1519,21 @@ log_invalid_opts(Opts) ->
         [] ->
             ok;
         NonEmptyList ->
-            ?log(warning, "The following options will be ingored as they are not supported in rocksdb:options(): ~p", [NonEmptyList])
+            ?log(warning, "The following options will be ingored as they are not supported in erlang's rocksdb:options(): ~p", [NonEmptyList])
     end.
 
+% filter and remove dublicates.
+filter_opts(Defaults, Opts, Allowed) ->
+    Filtered = lists:filter(fun({Key, _Value}) -> lists:member(Key, Allowed) end, Defaults ++ Opts),
+    % de-dublicate and override defaults
+    lists:foldl(fun
+        ({Key, Value}, Acc) ->
+            [{Key, Value} | lists:keydelete(Key, 1, Acc)]
+        end,
+        [],
+        Filtered
+    ).
 
-filter_opts(Opts, Allowed) ->
-    lists:filter(fun({Key, _Value}) -> lists:member(Key, Allowed) end, Opts).
 
 rocksdb_open(MP, Opts, CFs) ->
     %% rocksdb:open(MP, Opts, CFs),
@@ -1545,11 +1557,11 @@ remove_admin_db(Alias, #st{backends = Bs} = St) ->
     end.
 
 cfs(CFs, Opts) ->
-    Combined = cfopts() ++ filter_opts(Opts, ?cf_opts_allowed),
-    [{"default", Combined}] ++ lists:flatmap(fun(Tab) -> admin_cfs(Tab, Combined) end, CFs).
+    CfOpts = cfopts(Opts),
+    [{"default", CfOpts}] ++ lists:flatmap(fun(Tab) -> admin_cfs(Tab, CfOpts) end, CFs).
 
-cfopts() ->
-    [{merge_operator, erlang_merge_operator}].
+cfopts(Opts) ->
+    filter_opts([{merge_operator, erlang_merge_operator}], Opts, ?cf_opts_allowed).
 
 admin_cfs(Tab, CFOpts) when is_atom(Tab) -> [ {tab_to_cf_name(Tab), CFOpts} ];
 admin_cfs({_, _, _} = T, CFOpts)         -> [ {tab_to_cf_name(T), CFOpts} ];
