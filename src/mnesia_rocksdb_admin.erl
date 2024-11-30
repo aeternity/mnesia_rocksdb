@@ -1499,7 +1499,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
                     {merge_operator, erlang_merge_operator}
                 ],
                 Opts,
-                ?open_opts_allowed
+                rdb_type_extractor:open_opts_allowed()
             ),
             log_invalid_opts(Opts),
             OpenRes = mnesia_rocksdb_lib:open_rocksdb(MP, OpenOpts, CFs),
@@ -1514,7 +1514,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing) ->
     end.
 
 log_invalid_opts(Opts) ->
-    Combined = ?open_opts_allowed ++ ?cf_opts_allowed,
+    Combined = rdb_type_extractor:open_opts_allowed() ++ rdb_type_extractor:cf_opts_allowed(),
     case lists:filter(fun({Key, _Value}) -> lists:member(Key, Combined) == false end, Opts) of
         [] ->
             ok;
@@ -1561,7 +1561,7 @@ cfs(CFs, Opts) ->
     [{"default", CfOpts}] ++ lists:flatmap(fun(Tab) -> admin_cfs(Tab, CfOpts) end, CFs).
 
 cfopts(Opts) ->
-    filter_opts([{merge_operator, erlang_merge_operator}], Opts, ?cf_opts_allowed).
+    filter_opts([{merge_operator, erlang_merge_operator}], Opts, rdb_type_extractor:cf_opts_allowed()).
 
 admin_cfs(Tab, CFOpts) when is_atom(Tab) -> [ {tab_to_cf_name(Tab), CFOpts} ];
 admin_cfs({_, _, _} = T, CFOpts)         -> [ {tab_to_cf_name(T), CFOpts} ];
