@@ -93,9 +93,6 @@
 
 -define(PT_KEY, {mnesia_rocksdb, meta}).
 
--define(cf_opts_allowed, rdb_type_extractor:extract(rocksdb, cf_options)).
--define(open_opts_allowed, rdb_type_extractor:extract(rocksdb, db_options)).
-
 -spec ensure_started() -> ok.
 ensure_started() ->
     case whereis(?MODULE) of
