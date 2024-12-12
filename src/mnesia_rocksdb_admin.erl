@@ -1516,13 +1516,13 @@ log_invalid_opts(Opts) ->
         [] ->
             ok;
         NonEmptyList ->
-            ?log(warning, "The following options will be ingored as they are not supported in erlang's rocksdb:options(): ~p", [NonEmptyList])
+            ?log(warning, "The following options will be ignored as they are not supported in erlang's rocksdb:options(): ~p", [NonEmptyList])
     end.
 
-% filter and remove dublicates.
+% filter and remove duplicates.
 filter_opts(Defaults, Opts, Allowed) ->
     Filtered = lists:filter(fun({Key, _Value}) -> lists:member(Key, Allowed) end, Defaults ++ Opts),
-    % de-dublicate and override defaults
+    % de-duplicates and override defaults
     lists:foldl(fun
         ({Key, Value}, Acc) ->
             [{Key, Value} | lists:keydelete(Key, 1, Acc)]
