@@ -1,5 +1,6 @@
 {"1.2.0",
 [{<<"hut">>,{pkg,<<"hut">>,<<"1.4.0">>},0},
+ {<<"parse_trans">>,{pkg,<<"parse_trans">>,<<"3.4.2">>},0},
  {<<"rocksdb">>,
   {git,"https://github.com/emqx/erlang-rocksdb.git",
        {ref,"d695c6ee9dd27bfe492ed4e24c72ad20ab0d770b"}},
@@ -8,8 +9,10 @@
 [
 {pkg_hash,[
  {<<"hut">>, <<"7A1238EC00F95C9EC75412587EE11AC652ECA308A7F4B8CC9629746D579D6CF0">>},
+ {<<"parse_trans">>, <<"C352DDC1A0D5E54F9B1654D45F9C432EEF76F9CEA371C55DDFF769EF688FDB74">>},
  {<<"sext">>, <<"90A95B889F5C781B70BBCF44278B763148E313C376B60D87CE664CB1C1DD29B5">>}]},
 {pkg_hash_ext,[
  {<<"hut">>, <<"7AF8704B9BAE98A336F70D9560FC3C97F15665265FA603DBD05352E63D6EBB03">>},
+ {<<"parse_trans">>, <<"4C25347DE3B7C35732D32E69AB43D1CEEE0BEAE3F3B3ADE1B59CBD3DD224D9CA">>},
  {<<"sext">>, <<"BC6016CB8690BAF677EACACFE6E7CADFEC8DC7E286CBBED762F6CD55B0678E73">>}]}
 ].
