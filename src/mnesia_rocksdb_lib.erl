@@ -125,7 +125,7 @@ check_value_encoding({value, E} = V, [_, _]) when E==term; E==raw; E==sext -> V;
 check_value_encoding({object, E} = V, _) when E==term; E==raw; E==sext -> V;
 check_value_encoding(term, As) -> {val_encoding_type(As), term};
 check_value_encoding(sext, As) -> {val_encoding_type(As), sext};
-check_value_encoding(E, _) -> 
+check_value_encoding(E, _) ->
     throw({error, {invalid_value_encoding, E}}).
 
 val_encoding_type(Attrs) ->
@@ -141,11 +141,11 @@ valid_obj_type(#{encoding := Enc}, Obj) ->
         {{binary, _}, _} ->
             is_binary(element(2, Obj));
         {{_, {value, binary}}, {_, _, V}} ->
-            is_binary(V); 
+            is_binary(V);
         _ ->
             %% No restrictions on object type
             %% unless key and/or value typed to binary
-            true 
+            true
     end.
 
 valid_key_type(#{encoding := Enc}, Key) ->
@@ -202,7 +202,7 @@ encode_val(Val) ->
     encode(Val, term).
 
 encode_val(Val, Enc) when is_atom(Enc) ->
-    encode(Val, Enc); 
+    encode(Val, Enc);
 encode_val(_, #{name := {_,index,_}}) ->
     <<>>;
 encode_val(Val, #{encoding := {_, Enc0}, attr_pos := AP}) ->
@@ -306,6 +306,7 @@ open_db(MPd, Opts, CFs, RetriesLeft, _) ->
                     {error, Reason}
             end;
         {error, Reason} ->
+            ?log(error, "Can't open_optimistic_transaction_db with reason ~p",[Reason]),
             {error, Reason}
     end.
 
