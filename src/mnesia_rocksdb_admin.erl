@@ -1500,7 +1500,7 @@ open_db_(MP, Alias, Opts, CFs0, CreateIfMissing, DbName, #st{backends = Backends
             {ok, CFs} = rocksdb:list_column_families(MP, Opts),
             CFsWithOpts = case map_size(Backends) of
                 0 ->
-                    [{CF,[]} || CF <- CFs];
+                    [{CF, cfopts([])} || CF <- CFs];
                 _ ->
                     {ok, Trec} = find_cf(Alias, DbName, maps:get(Alias, Backends), St),
                     StoredOpts = rocksdb_opts_from_trec(Trec),
@@ -1568,8 +1568,7 @@ open_opts(Opts) ->
     filter_opts(
         [
             {create_if_missing, true},
-            {create_missing_column_families, true},
-            {merge_operator, erlang_merge_operator}
+            {create_missing_column_families, true}
         ],
         Opts,
         rdb_type_extractor:open_opts_allowed()
