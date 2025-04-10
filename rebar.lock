@@ -3,7 +3,7 @@
  {<<"parse_trans">>,{pkg,<<"parse_trans">>,<<"3.4.2">>},0},
  {<<"rocksdb">>,
   {git,"https://github.com/emqx/erlang-rocksdb.git",
-       {ref,"d695c6ee9dd27bfe492ed4e24c72ad20ab0d770b"}},
+       {ref,"b0e767172483b01f5bd46fd06b2604e14e78bd42"}},
   0},
  {<<"sext">>,{pkg,<<"sext">>,<<"1.8.0">>},0}]}.
 [
