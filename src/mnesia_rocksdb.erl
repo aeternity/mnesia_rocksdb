@@ -562,12 +562,21 @@ sender_handle_info(_Msg, _Alias, _Tab, _ReceiverPid, Cont) ->
     {chunk_fun(), Cont}.
 
 receiver_first_message(_Pid, {first, Size} = _Msg, _Alias, _Tab) ->
-    {Size, _State = []}.
+    {Size, not_started}.
 
 receive_data(Data, Alias, Tab, _Sender, State) ->
+    %% Mnesia blocks the receiver table before entering this data phase.
+    case State of
+        not_started -> match_delete(Alias, Tab, '_');
+        _ -> ok
+    end,
     [insert(Alias, Tab, Obj) || Obj <- Data],
-    {more, State}.
+    {more, started}.
 
+receive_done(Alias, Tab, _Sender, not_started) ->
+    %% An empty sender emits no data chunk, but the receiver still needs to
+    %% replace its prior contents when the full-table transfer completes.
+    match_delete(Alias, Tab, '_');
 receive_done(_Alias, _Tab, _Sender, _State) ->
     ok.
 

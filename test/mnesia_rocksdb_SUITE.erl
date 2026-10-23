@@ -16,6 +16,7 @@
 -export([ encoding_sext_attrs/1
         , encoding_binary_binary/1
         , encoding_defaults/1
+        , sync_callbacks_replace_snapshot/1
         ]).
 -export([ mrdb_batch/1
         , mrdb_transactions/1
@@ -46,7 +47,8 @@ groups() ->
                               %% , error_handling ]}
     , {checks, [sequence], [ encoding_sext_attrs
                            , encoding_binary_binary
-                           , encoding_defaults ]}
+                           , encoding_defaults
+                           , sync_callbacks_replace_snapshot ]}
     , {mrdb, [sequence], [ mrdb_batch
                          , mrdb_transactions
 			 , mrdb_abort_reasons
@@ -115,6 +117,64 @@ encoding_defaults(Config) ->
     [{mrdb_encoding,{sext,{object,term}}}] = UP(b),
     [{mrdb_encoding,{sext,{value,term}}}]  = UP(c),
     delete_tabs(Created),
+    ok.
+
+sync_callbacks_replace_snapshot(_Config) ->
+    meck:new(mrdb, [no_link]),
+    meck:expect(mrdb, ensure_ref,
+                fun(Tab) -> #{access_type => mock,
+                              db => get({sync_mock_db, Tab})} end),
+    meck:expect(mrdb, match_delete,
+                fun(#{db := Db}, Pattern) ->
+                        ets:match_delete(Db, Pattern),
+                        ok
+                end),
+    meck:expect(mrdb, insert,
+                fun(#{db := Db}, Object, _Options) ->
+                        ets:insert(Db, Object),
+                        ok
+                end),
+    try
+        lists:foreach(fun assert_sync_callbacks_replace_snapshot/1,
+                      [set, ordered_set, bag])
+    after
+        meck:unload(mrdb)
+    end,
+    ok.
+
+assert_sync_callbacks_replace_snapshot(Type) ->
+    Tab = sync_mock_table,
+    Receiver = ets:new(sync_mock_table, [Type, public, {keypos, 2}]),
+    put({sync_mock_db, Tab}, Receiver),
+    true = ets:insert(Receiver, {Tab, stale_key, stale_value}),
+    case Type of
+        bag -> true = ets:insert(Receiver, {Tab, stale_key, stale_value_2});
+        _ -> ok
+    end,
+    {0, not_started} = mnesia_rocksdb:receiver_first_message(
+                         self(), {first, 0}, rocksdb_copies, Tab),
+    {more, started} = mnesia_rocksdb:receive_data(
+                        [{Tab, current_key, current_value}],
+                        rocksdb_copies, Tab, self(), not_started),
+    {more, started} = mnesia_rocksdb:receive_data(
+                        [{Tab, current_key_2, current_value_2}],
+                        rocksdb_copies, Tab, self(), started),
+    ok = mnesia_rocksdb:receive_done(rocksdb_copies, Tab, self(), started),
+    [] = ets:lookup(Receiver, stale_key),
+    [{Tab, current_key, current_value}] = ets:lookup(Receiver, current_key),
+    [{Tab, current_key_2, current_value_2}] = ets:lookup(Receiver, current_key_2),
+    ets:delete(Receiver),
+
+    %% An empty sender emits no receive_data callback; receive_done must clear.
+    EmptyReceiver = ets:new(sync_empty_table, [Type, public, {keypos, 2}]),
+    put({sync_mock_db, Tab}, EmptyReceiver),
+    true = ets:insert(EmptyReceiver, {Tab, stale_key, stale_value}),
+    {0, not_started} = mnesia_rocksdb:receiver_first_message(
+                         self(), {first, 0}, rocksdb_copies, Tab),
+    ok = mnesia_rocksdb:receive_done(rocksdb_copies, Tab, self(), not_started),
+    [] = ets:tab2list(EmptyReceiver),
+    ets:delete(EmptyReceiver),
+    erase({sync_mock_db, Tab}),
     ok.
 
 encoding_binary_binary(Config) ->
